@@ -32,6 +32,7 @@ Utils.lua
 modules/ItemCache.lua
 modules/RecipeData.lua
 modules/RecipeSearch.lua
+modules/DirectoryUI.lua
 
 Options.lua
 Roster.lua
