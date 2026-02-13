@@ -30,6 +30,7 @@ Utils.lua
 
 # Modules (extracted from Core.lua for maintainability)
 modules/ItemCache.lua
+modules/RecipeData.lua
 
 Options.lua
 Roster.lua
