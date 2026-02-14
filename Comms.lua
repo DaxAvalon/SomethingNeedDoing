@@ -582,20 +582,31 @@ function SND:ChunkPayload(encoded, kind)
 end
 
 function SND:IngestRecipeIndexPayload(encoded, sender, kind)
+  debugComms(self, string.format(
+    "IngestRecipeIndexPayload: ENTER sender=%s kind=%s encoded_len=%d",
+    tostring(sender),
+    tostring(kind),
+    encoded and #encoded or 0
+  ))
+
   if type(encoded) ~= "string" or encoded == "" then
+    debugComms(self, "IngestRecipeIndexPayload: ABORT - invalid encoded string")
     return
   end
 
   if #encoded > 80000 then
+    debugComms(self, string.format("IngestRecipeIndexPayload: ABORT - encoded too large (%d bytes)", #encoded))
     return
   end
 
   local decoded = self.comms.deflate:DecodeForWoWAddonChannel(encoded)
   if not decoded then
+    debugComms(self, "IngestRecipeIndexPayload: ABORT - decode failed")
     return
   end
   local inflated = self.comms.deflate:DecompressDeflate(decoded)
   if not inflated then
+    debugComms(self, "IngestRecipeIndexPayload: ABORT - decompress failed")
     return
   end
   local ok, recipeIndex = self.comms.serializer:Deserialize(inflated)
@@ -669,21 +680,56 @@ function SND:IngestRecipeIndexPayload(encoded, sender, kind)
         end
       end
     end
+  else
+    debugComms(self, string.format(
+      "IngestRecipeIndexPayload: ABORT - deserialize failed (ok=%s type=%s)",
+      tostring(ok),
+      type(recipeIndex)
+    ))
   end
 end
 
 function SND:HandleRecipeEnvelope(payload, sender)
-  local kind, encoded = string.match(payload, "^(RCP3_FULL|RCP3)%|(.*)$")
+  -- Try RCP3_FULL first (longer pattern), then fall back to RCP3
+  -- Note: Lua patterns don't support | alternation like regex
+  local kind, encoded = string.match(payload, "^(RCP3_FULL)%|(.*)$")
+  if not kind then
+    kind, encoded = string.match(payload, "^(RCP3)%|(.*)$")
+  end
+
   if not kind or not encoded then
+    debugComms(self, string.format(
+      "HandleRecipeEnvelope: pattern match failed for payload from %s (len=%d)",
+      tostring(sender),
+      payload and #payload or 0
+    ))
     return
   end
+
+  debugComms(self, string.format(
+    "HandleRecipeEnvelope: matched kind=%s encoded_len=%d sender=%s",
+    tostring(kind),
+    encoded and #encoded or 0,
+    tostring(sender)
+  ))
+
   self:IngestRecipeIndexPayload(encoded, sender, kind)
 end
 
 function SND:HandleRecipeChunk(payload, sender)
-  local _, _, kind, version, senderName, msgId, seq, total, chunk = string.find(payload, "^(RCP_FULL|RCP)%|(.-)%|(.-)%|(.-)%|(.-)/(.-)%|(.*)$")
+  -- Try RCP_FULL first (longer pattern), then fall back to RCP
+  -- Note: Lua patterns don't support | alternation like regex
+  local _, _, kind, version, senderName, msgId, seq, total, chunk = string.find(payload, "^(RCP_FULL)%|(.-)%|(.-)%|(.-)%|(.-)/(.-)%|(.*)$")
+  if not kind then
+    _, _, kind, version, senderName, msgId, seq, total, chunk = string.find(payload, "^(RCP)%|(.-)%|(.-)%|(.-)%|(.-)/(.-)%|(.*)$")
+  end
+
   if not msgId then
-    local rawKind, encoded = string.match(payload, "^(RCP_FULL|RCP)%|(.*)$")
+    -- Fallback: try simple envelope format (non-chunked)
+    local rawKind, encoded = string.match(payload, "^(RCP_FULL)%|(.*)$")
+    if not rawKind then
+      rawKind, encoded = string.match(payload, "^(RCP)%|(.*)$")
+    end
     if rawKind and encoded then
       self:IngestRecipeIndexPayload(encoded, sender, rawKind)
     end
