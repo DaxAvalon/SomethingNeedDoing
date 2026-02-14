@@ -447,14 +447,13 @@ function SND:CreateDirectoryTab(parent)
   UIDropDownMenu_SetWidth(sortDrop, 150)
   UIDropDownMenu_SetText(sortDrop, T("Name (A-Z)"))
 
-  local leftWidth = 290
-  local middleWidth = 290
   local columnGap = 10
 
   local listContainer = CreateFrame("Frame", nil, frame, "BackdropTemplate")
   listContainer:SetPoint("TOPLEFT", filterBar, "BOTTOMLEFT", 0, -8)
   listContainer:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 8, 12)
-  listContainer:SetWidth(leftWidth)
+  -- Use relative positioning: 23% of parent width
+  listContainer:SetPoint("RIGHT", frame, "LEFT", 310, 0)
   listContainer:SetBackdrop({
     bgFile = "Interface/Tooltips/UI-Tooltip-Background",
     edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
@@ -478,7 +477,8 @@ function SND:CreateDirectoryTab(parent)
   local detailContainer = CreateFrame("Frame", nil, frame, "BackdropTemplate")
   detailContainer:SetPoint("TOPLEFT", listContainer, "TOPRIGHT", columnGap, 0)
   detailContainer:SetPoint("BOTTOMLEFT", listContainer, "BOTTOMRIGHT", columnGap, 0)
-  detailContainer:SetWidth(middleWidth)
+  -- Use relative positioning: 23% of parent width
+  detailContainer:SetPoint("RIGHT", frame, "LEFT", 620, 0)
   detailContainer:SetBackdrop({
     bgFile = "Interface/Tooltips/UI-Tooltip-Background",
     edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
@@ -545,8 +545,7 @@ function SND:CreateDirectoryTab(parent)
   local actionButtonGap = 4
   local whisperButtonWidth = 34
   local requestButtonWidth = 52
-  local crafterScrollChildWidth = middleWidth - 18
-  local crafterRowWidth = crafterScrollChildWidth - 4
+  -- Scroll child width will be set dynamically based on parent
 
   local crafterHeaderName = detailContainer:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
   crafterHeaderName:SetPoint("TOPLEFT", craftersTitle, "BOTTOMLEFT", columnNameX, -6)
@@ -570,14 +569,14 @@ function SND:CreateDirectoryTab(parent)
   crafterScrollFrame:SetPoint("BOTTOMRIGHT", detailContainer, "BOTTOMRIGHT", -26, 8)
 
   local crafterScrollChild = CreateFrame("Frame", nil, crafterScrollFrame)
-  crafterScrollChild:SetSize(crafterScrollChildWidth, 120)
+  crafterScrollChild:SetSize(280, 120)
   crafterScrollFrame:SetScrollChild(crafterScrollChild)
 
   local crafterRows = {}
   local crafterRowHeight = 24
   for i = 1, 10 do
     local row = CreateFrame("Frame", nil, crafterScrollChild)
-    row:SetSize(crafterRowWidth, crafterRowHeight)
+    row:SetHeight(crafterRowHeight)
     row:SetPoint("TOPLEFT", 0, -(i - 1) * crafterRowHeight)
     row:SetPoint("RIGHT", crafterScrollChild, "RIGHT", 0, 0)
 
@@ -923,12 +922,12 @@ function SND:CreateRequestsTab(parent)
     SND:RefreshRequestList(frame)
   end)
 
-  local leftWidth = 560
   local columnGap = 10
   local listContainer = CreateFrame("Frame", nil, frame, "BackdropTemplate")
   listContainer:SetPoint("TOPLEFT", filterBar, "BOTTOMLEFT", 0, -8)
   listContainer:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 8, 12)
-  listContainer:SetWidth(leftWidth)
+  -- Use relative positioning: 45% of parent width
+  listContainer:SetPoint("RIGHT", frame, "LEFT", 590, 0)
   listContainer:SetBackdrop({
     bgFile = "Interface/Tooltips/UI-Tooltip-Background",
     edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
@@ -987,7 +986,7 @@ function SND:CreateRequestsTab(parent)
   scrollFrame:SetPoint("BOTTOMRIGHT", pageBar, "TOPRIGHT", -18, 4)
 
   local scrollChild = CreateFrame("Frame", nil, scrollFrame)
-  scrollChild:SetSize(leftWidth - 28, 240)
+  scrollChild:SetSize(530, 240)
   scrollFrame:SetScrollChild(scrollChild)
 
   local detailContainer = CreateFrame("Frame", nil, frame, "BackdropTemplate")
@@ -1184,12 +1183,13 @@ function SND:CreateRequestsTab(parent)
   local statusColumnX = 356
   for i = 1, 10 do
     local row = CreateFrame("Button", nil, scrollChild, "BackdropTemplate")
-    row:SetSize(leftWidth - 34, requestRowHeight)
+    row:SetHeight(requestRowHeight)
     if i == 1 then
       row:SetPoint("TOPLEFT", 0, 0)
     else
       row:SetPoint("TOPLEFT", listButtons[i - 1], "BOTTOMLEFT", 0, -2)
     end
+    row:SetPoint("RIGHT", scrollChild, "RIGHT", -2, 0)
 
     row:SetBackdrop({
       bgFile = "Interface/Buttons/WHITE8x8",
@@ -1358,11 +1358,14 @@ function SND:CreateMeTab(parent)
 
   local leftColumn = CreateFrame("Frame", nil, frame)
   leftColumn:SetPoint("TOPLEFT", label, "BOTTOMLEFT", 0, -6)
-  leftColumn:SetSize(420, 420)
+  leftColumn:SetPoint("BOTTOM", frame, "BOTTOM", 0, 12)
+  -- Use relative positioning: 35% of parent width
+  leftColumn:SetPoint("RIGHT", frame, "LEFT", 460, 0)
 
   local rightColumn = CreateFrame("Frame", nil, frame)
   rightColumn:SetPoint("TOPLEFT", leftColumn, "TOPRIGHT", 24, 0)
-  rightColumn:SetPoint("RIGHT", -8, 0)
+  rightColumn:SetPoint("BOTTOM", frame, "BOTTOM", 0, 12)
+  rightColumn:SetPoint("RIGHT", frame, "RIGHT", -8, 0)
 
   local statusHeader = leftColumn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
   statusHeader:SetPoint("TOPLEFT", 0, -4)
