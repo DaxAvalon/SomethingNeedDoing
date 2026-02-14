@@ -438,7 +438,9 @@ function SND:HandleRequestMessage(payload, kind, sender)
           end
         end
 
-        if canCraft then
+        -- Notify user if notifications enabled and not in combat
+        local showNotifications = self.db and self.db.config and self.db.config.showNotifications
+        if canCraft and showNotifications and not InCombatLockdown() then
           local recipeName = self:GetRecipeOutputItemName(message.data.recipeSpellID)
           if not recipeName and self.db.recipeIndex[message.data.recipeSpellID] then
             recipeName = self.db.recipeIndex[message.data.recipeSpellID].name
@@ -452,7 +454,8 @@ function SND:HandleRequestMessage(payload, kind, sender)
     end
   end
 
-  if self.mainFrame and self.mainFrame.contentFrames then
+  -- Refresh request list UI (but not during combat to avoid taint)
+  if not InCombatLockdown() and self.mainFrame and self.mainFrame.contentFrames then
     local requestsFrame = self.mainFrame.contentFrames[2]
     if requestsFrame and requestsFrame.listButtons then
       self:RefreshRequestList(requestsFrame)
@@ -654,7 +657,9 @@ function SND:IngestRecipeIndexPayload(encoded, sender, kind)
     self.db.players[senderKey] = senderEntry
 
     -- Notify user about new recipes learned by other players
-    if #newRecipesLearned > 0 and senderKey ~= self:GetPlayerKey(UnitName("player")) then
+    -- Only show if notifications enabled and not in combat
+    local showNotifications = self.db and self.db.config and self.db.config.showNotifications
+    if showNotifications and #newRecipesLearned > 0 and senderKey ~= self:GetPlayerKey(UnitName("player")) and not InCombatLockdown() then
       for _, recipeData in ipairs(newRecipesLearned) do
         local outputName = self:GetRecipeOutputItemName(recipeData.recipeSpellID)
         local displayName = outputName or recipeData.recipeName
@@ -670,8 +675,8 @@ function SND:IngestRecipeIndexPayload(encoded, sender, kind)
       countTableEntries(self.db and self.db.recipeIndex)
     ))
 
-    -- Refresh directory UI if recipes were merged
-    if mergedCount > 0 and self.mainFrame and self.mainFrame.contentFrames then
+    -- Refresh directory UI if recipes were merged (but not during combat to avoid taint)
+    if mergedCount > 0 and not InCombatLockdown() and self.mainFrame and self.mainFrame.contentFrames then
       local directoryFrame = self.mainFrame.contentFrames[1]
       if directoryFrame and directoryFrame.searchBox then
         local query = directoryFrame.searchBox:GetText() or ""

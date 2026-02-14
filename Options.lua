@@ -81,6 +81,18 @@ function SND:GetOptionsTable()
               end
             end,
           },
+          showNotifications = {
+            type = "toggle",
+            name = T("Show chat notifications"),
+            desc = T("Show messages when other players learn recipes or create craft requests you can fulfill. Messages will never appear during combat."),
+            order = 3,
+            get = function()
+              return getConfig(self).showNotifications and true or false
+            end,
+            set = function(_, value)
+              getConfig(self).showNotifications = value and true or false
+            end,
+          },
           autoPublishOnLogin = {
             type = "toggle",
             name = T("Auto publish on login"),

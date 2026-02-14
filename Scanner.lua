@@ -138,7 +138,8 @@ function SND:ShowZeroRecipesAlert(scanID)
     end
   end
 
-  if StaticPopup_Show then
+  -- Never show popup during combat to avoid interrupting player
+  if StaticPopup_Show and not InCombatLockdown() then
     if not StaticPopupDialogs["SND_ZERO_RECIPES_FOUND"] then
       StaticPopupDialogs["SND_ZERO_RECIPES_FOUND"] = {
         text = T("Something Need Doing") .. "\n\n" .. T("No recipes were found during the latest profession scan."),
