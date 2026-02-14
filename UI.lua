@@ -359,7 +359,7 @@ function SND:CreateDirectoryTab(parent)
   local filterBar = CreateFrame("Frame", nil, frame, "BackdropTemplate")
   filterBar:SetPoint("TOPLEFT", 8, -12)
   filterBar:SetPoint("TOPRIGHT", -8, -12)
-  filterBar:SetHeight(80)
+  filterBar:SetHeight(110)
   filterBar:SetBackdrop({
     bgFile = "Interface/Tooltips/UI-Tooltip-Background",
     edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
@@ -416,6 +416,36 @@ function SND:CreateDirectoryTab(parent)
     frame.hideOwnRecipes = btn:GetChecked() and true or false
     SND:UpdateDirectoryResults(searchBox:GetText())
   end)
+
+  -- Sort dropdown
+  local sortLabel = filterBar:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+  sortLabel:SetPoint("TOPLEFT", searchLabel, "BOTTOMLEFT", 0, -36)
+  sortLabel:SetText(T("Sort by"))
+
+  local sortDrop = CreateFrame("Frame", "SNDSortDropDown", filterBar, "UIDropDownMenuTemplate")
+  sortDrop:SetPoint("LEFT", sortLabel, "RIGHT", -10, -16)
+
+  UIDropDownMenu_Initialize(sortDrop, function(dropdown, level)
+    local options = {
+      { value = "name_az", text = T("Name (A-Z)") },
+      { value = "name_za", text = T("Name (Z-A)") },
+      { value = "rarity", text = T("Rarity (High to Low)") },
+      { value = "level", text = T("Level (High to Low)") },
+    }
+    for _, option in ipairs(options) do
+      local info = UIDropDownMenu_CreateInfo()
+      info.text = option.text
+      info.checked = option.value == frame.sortBy
+      info.func = function()
+        frame.sortBy = option.value
+        UIDropDownMenu_SetText(sortDrop, option.text)
+        SND:UpdateDirectoryResults(searchBox:GetText())
+      end
+      UIDropDownMenu_AddButton(info, level)
+    end
+  end)
+  UIDropDownMenu_SetWidth(sortDrop, 150)
+  UIDropDownMenu_SetText(sortDrop, T("Name (A-Z)"))
 
   local leftWidth = 290
   local middleWidth = 290
@@ -774,6 +804,7 @@ function SND:CreateDirectoryTab(parent)
   frame.onlineOnly = false
   frame.sharedMatsOnly = false
   frame.hideOwnRecipes = false
+  frame.sortBy = "name_az"
 
   UIDropDownMenu_Initialize(professionDrop, function(dropdown, level)
     local options = SND:GetProfessionFilterOptions()

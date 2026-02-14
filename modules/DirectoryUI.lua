@@ -125,10 +125,14 @@ function SND:UpdateDirectoryResults(query)
     onlineOnly = directoryFrame.onlineOnly,
     sharedMatsOnly = directoryFrame.sharedMatsOnly,
     hideOwnRecipes = directoryFrame.hideOwnRecipes,
+    sortBy = directoryFrame.sortBy or "name_az",
   }
 
   -- Execute search
   local results = self:SearchRecipes(searchQuery, filters)
+
+  -- Apply sorting
+  self:SortDirectoryResults(results, filters.sortBy)
   local recipeIndexCount = countTableEntries(self.db and self.db.recipeIndex)
 
   -- Debug logging (with deduplication)
@@ -259,6 +263,90 @@ function SND:RenderDirectoryList(directoryFrame, results)
 
   -- Auto-select first recipe
   self:SelectDirectoryRecipe(directoryFrame, firstSelected)
+end
+
+-- ============================================================================
+-- Directory Result Sorting
+-- ============================================================================
+
+--[[
+  SortDirectoryResults - Sort recipe results by selected criteria
+
+  Purpose:
+    Sorts the recipe results array in-place based on the selected sort option.
+
+  Parameters:
+    @param results (table) - Array of recipe results to sort
+    @param sortBy (string) - Sort option: "name_az", "name_za", "rarity", "level"
+
+  Side Effects:
+    - Modifies results array in-place
+
+  Sorting Options:
+    - name_az: Alphabetical A to Z by output item name
+    - name_za: Alphabetical Z to A by output item name
+    - rarity: Item quality (Epic > Rare > Uncommon > Common > Poor)
+    - level: Item level (high to low)
+]]--
+function SND:SortDirectoryResults(results, sortBy)
+  if not results or #results == 0 then
+    return
+  end
+
+  local function getItemName(recipeSpellID)
+    local name = self:GetRecipeOutputItemName(recipeSpellID)
+    if not name then
+      local recipe = self.db.recipeIndex[recipeSpellID]
+      name = recipe and recipe.name or ""
+    end
+    return string.lower(name or "")
+  end
+
+  local function getItemQuality(recipeSpellID)
+    local itemID = self:GetRecipeOutputItemID(recipeSpellID)
+    if itemID then
+      local _, _, quality = GetItemInfo(itemID)
+      return quality or 0
+    end
+    return 0
+  end
+
+  local function getItemLevel(recipeSpellID)
+    local itemID = self:GetRecipeOutputItemID(recipeSpellID)
+    if itemID then
+      local _, _, _, level = GetItemInfo(itemID)
+      return level or 0
+    end
+    return 0
+  end
+
+  if sortBy == "name_az" then
+    table.sort(results, function(a, b)
+      return getItemName(a.recipeSpellID) < getItemName(b.recipeSpellID)
+    end)
+  elseif sortBy == "name_za" then
+    table.sort(results, function(a, b)
+      return getItemName(a.recipeSpellID) > getItemName(b.recipeSpellID)
+    end)
+  elseif sortBy == "rarity" then
+    table.sort(results, function(a, b)
+      local qualityA = getItemQuality(a.recipeSpellID)
+      local qualityB = getItemQuality(b.recipeSpellID)
+      if qualityA == qualityB then
+        return getItemName(a.recipeSpellID) < getItemName(b.recipeSpellID)
+      end
+      return qualityA > qualityB
+    end)
+  elseif sortBy == "level" then
+    table.sort(results, function(a, b)
+      local levelA = getItemLevel(a.recipeSpellID)
+      local levelB = getItemLevel(b.recipeSpellID)
+      if levelA == levelB then
+        return getItemName(a.recipeSpellID) < getItemName(b.recipeSpellID)
+      end
+      return levelA > levelB
+    end)
+  end
 end
 
 -- ============================================================================
