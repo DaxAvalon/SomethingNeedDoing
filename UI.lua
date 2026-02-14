@@ -369,7 +369,7 @@ function SND:CreateDirectoryTab(parent)
   filterBar:SetBackdropColor(0.08, 0.06, 0.03, 1)
 
   local searchBox = CreateFrame("EditBox", nil, filterBar, "InputBoxTemplate")
-  searchBox:SetSize(250, 28)
+  searchBox:SetSize(180, 28)
   searchBox:SetPoint("TOPLEFT", 14, -22)
   searchBox:SetAutoFocus(false)
   searchBox:SetScript("OnEnterPressed", function(edit)
@@ -390,28 +390,28 @@ function SND:CreateDirectoryTab(parent)
   searchLabel:SetText(T("Search"))
 
   local professionLabel = filterBar:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-  professionLabel:SetPoint("BOTTOMLEFT", searchBox, "TOPRIGHT", 24, -4)
+  professionLabel:SetPoint("BOTTOMLEFT", searchBox, "TOPRIGHT", 12, -4)
   professionLabel:SetText(T("Profession"))
 
   local professionDrop = CreateFrame("Frame", "SNDProfessionDropDown", filterBar, "UIDropDownMenuTemplate")
   professionDrop:SetPoint("LEFT", professionLabel, "RIGHT", -10, -16)
 
   local onlineBox, onlineOnly = CreateBoundedCheckbox(filterBar, T("Online Only"))
-  onlineBox:SetPoint("LEFT", professionDrop, "RIGHT", 6, -4)
+  onlineBox:SetPoint("LEFT", professionDrop, "RIGHT", 0, -4)
   onlineOnly:SetScript("OnClick", function(btn)
     frame.onlineOnly = btn:GetChecked() and true or false
     SND:UpdateDirectoryResults(searchBox:GetText())
   end)
 
   local matsBox, matsOnly = CreateBoundedCheckbox(filterBar, T("Has Materials"))
-  matsBox:SetPoint("LEFT", onlineBox, "RIGHT", 6, 0)
+  matsBox:SetPoint("LEFT", onlineBox, "RIGHT", 2, 0)
   matsOnly:SetScript("OnClick", function(btn)
     frame.sharedMatsOnly = btn:GetChecked() and true or false
     SND:UpdateDirectoryResults(searchBox:GetText())
   end)
 
   local hideOwnBox, hideOwnCheckbox = CreateBoundedCheckbox(filterBar, T("Hide My Recipes"))
-  hideOwnBox:SetPoint("LEFT", matsBox, "RIGHT", 6, 0)
+  hideOwnBox:SetPoint("LEFT", matsBox, "RIGHT", 2, 0)
   hideOwnCheckbox:SetScript("OnClick", function(btn)
     frame.hideOwnRecipes = btn:GetChecked() and true or false
     SND:UpdateDirectoryResults(searchBox:GetText())
@@ -865,7 +865,7 @@ function SND:CreateRequestsTab(parent)
   filterBar:SetBackdropColor(0.08, 0.06, 0.03, 1)
 
   local searchBox = CreateFrame("EditBox", nil, filterBar, "InputBoxTemplate")
-  searchBox:SetSize(250, 28)
+  searchBox:SetSize(180, 28)
   searchBox:SetPoint("TOPLEFT", 14, -22)
   searchBox:SetAutoFocus(false)
   searchBox:SetScript("OnEnterPressed", function(edit)
@@ -888,18 +888,18 @@ function SND:CreateRequestsTab(parent)
   searchLabel:SetText("Search")
 
   local professionLabel = filterBar:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-  professionLabel:SetPoint("BOTTOMLEFT", searchBox, "TOPRIGHT", 24, 4)
+  professionLabel:SetPoint("BOTTOMLEFT", searchBox, "TOPRIGHT", 12, 4)
   professionLabel:SetText("Profession")
 
   local professionDrop = CreateFrame("Frame", "SNDRequestProfessionDropDown", filterBar, "UIDropDownMenuTemplate")
-  professionDrop:SetPoint("TOPLEFT", searchBox, "TOPRIGHT", 10, 2)
+  professionDrop:SetPoint("TOPLEFT", searchBox, "TOPRIGHT", 8, 2)
 
   local statusLabel = filterBar:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-  statusLabel:SetPoint("BOTTOMLEFT", professionDrop, "TOPRIGHT", 14, 2)
+  statusLabel:SetPoint("BOTTOMLEFT", professionDrop, "TOPRIGHT", 8, 2)
   statusLabel:SetText("Status")
 
   local statusDrop = CreateFrame("Frame", "SNDRequestStatusDropDown", filterBar, "UIDropDownMenuTemplate")
-  statusDrop:SetPoint("TOPLEFT", professionDrop, "TOPRIGHT", 26, 0)
+  statusDrop:SetPoint("TOPLEFT", professionDrop, "TOPRIGHT", 12, 0)
 
   local onlyMineBox, onlyMine = CreateBoundedCheckbox(filterBar, T("Online Only"))
   onlyMineBox:SetPoint("TOPLEFT", searchBox, "BOTTOMLEFT", 0, -12)
@@ -909,14 +909,14 @@ function SND:CreateRequestsTab(parent)
   end)
 
   local onlyClaimableBox, onlyClaimable = CreateBoundedCheckbox(filterBar, "Unclaimed Only")
-  onlyClaimableBox:SetPoint("LEFT", onlyMineBox, "RIGHT", 18, 0)
+  onlyClaimableBox:SetPoint("LEFT", onlyMineBox, "RIGHT", 8, 0)
   onlyClaimable:SetScript("OnClick", function(btn)
     frame.onlyClaimable = btn:GetChecked() and true or false
     SND:RefreshRequestList(frame)
   end)
 
   local hasMatsBox, hasMatsCheck = CreateBoundedCheckbox(filterBar, "Has Materials")
-  hasMatsBox:SetPoint("LEFT", onlyClaimableBox, "RIGHT", 18, 0)
+  hasMatsBox:SetPoint("LEFT", onlyClaimableBox, "RIGHT", 8, 0)
   hasMatsCheck:SetScript("OnClick", function(btn)
     frame.hasMaterialsOnly = btn:GetChecked() and true or false
     SND:RefreshRequestList(frame)
