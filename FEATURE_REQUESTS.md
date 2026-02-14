@@ -300,6 +300,82 @@ REQ_DELIVERED = {
 
 ---
 
+## Feature 4: Guild Profession Roster View
+
+### Current Behavior
+- Can only see professions when searching for specific recipes
+- No way to browse all guild members and their profession levels
+- Difficult to answer questions like "Who has max Blacksmithing?"
+
+### Requested Behavior
+**New tab: "Guild Roster" showing all members with addon**
+
+Table columns:
+1. **Name** - Guild member name (click to whisper)
+2. **Status** - Online/Offline indicator
+3. **Professions** - List of professions with skill levels
+4. **Last Seen** - When they were last online/scanned
+
+Example display:
+```
+Name          Status    Professions                    Last Seen
+─────────────────────────────────────────────────────────────────
+Aeryn         ● Online  Blacksmithing 300/300          Now
+                        Engineering 275/300
+Roeyn         ○ Offline Alchemy 300/300                2h ago
+                        Herbalism 300/300
+PlayerName    ● Online  Tailoring 150/300              Now
+```
+
+### Features
+- **Sortable columns**: Click column header to sort
+- **Search/filter**: Search by name or profession
+- **Profession filter**: Show only members with specific profession
+- **Skill level filter**: "Max level only" checkbox
+- **Export**: Copy to clipboard for sharing
+
+### UI Design
+```
+┌──────────────────────────────────────────────────┐
+│ Guild Roster                         [Refresh]   │
+├──────────────────────────────────────────────────┤
+│ Search: [____________]  Profession: [All ▼]      │
+│ ☑ Show online only  ☑ Max level only            │
+├──────────────────────────────────────────────────┤
+│ Name ▲    Status    Professions         Last Seen│
+│ ───────────────────────────────────────────────  │
+│ Aeryn     ● Online  Blacksmithing 300   Now      │
+│                     Engineering 275               │
+│ Roeyn     ○ Offline Alchemy 300         2h ago   │
+│ ...                                               │
+└──────────────────────────────────────────────────┘
+```
+
+### Implementation Notes
+- Add 4th tab to main window
+- Reuse existing data from `self.db.players`
+- Sortable table widget (similar to request list)
+- Auto-refresh when guild roster updates
+- Show member count: "Showing 45/120 guild members"
+
+### Data Available
+All data already exists in database:
+```lua
+for playerName, player in pairs(self.db.players) do
+  -- player.online (boolean)
+  -- player.professions (table)
+  --   profession.name (string)
+  --   profession.rank (number)
+  --   profession.maxRank (number)
+  -- player.lastSeen (timestamp)
+end
+```
+
+### Priority
+Medium - Nice to have, not critical
+
+---
+
 ## Future Enhancements (Out of Scope)
 
 - Request expiration (auto-cancel after X days)
@@ -307,6 +383,8 @@ REQ_DELIVERED = {
 - Multiple item requests (batch crafting)
 - Material tracking (show what requestor has provided)
 - Crafting queue (order multiple requests)
+- Guild profession statistics (charts/graphs)
+- Profession progression tracking over time
 
 ---
 
