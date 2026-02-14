@@ -170,6 +170,24 @@ function SND:FinalizeScanRun(reason)
 end
 
 function SND:InitScanner()
+  self.scanner.pendingCombatScans = self.scanner.pendingCombatScans or {}
+
+  -- Combat state tracking
+  self:RegisterEvent("PLAYER_REGEN_DISABLED", function(selfRef)
+    selfRef.scanner.inCombat = true
+  end)
+  self:RegisterEvent("PLAYER_REGEN_ENABLED", function(selfRef)
+    selfRef.scanner.inCombat = false
+    -- Process any pending scans after combat
+    if #selfRef.scanner.pendingCombatScans > 0 then
+      debugScan(selfRef, string.format("Scanner: combat ended, processing %d pending scans", #selfRef.scanner.pendingCombatScans))
+      for _, trigger in ipairs(selfRef.scanner.pendingCombatScans) do
+        selfRef:ScanProfessions(trigger)
+      end
+      selfRef.scanner.pendingCombatScans = {}
+    end
+  end)
+
   self:RegisterEvent("TRADE_SKILL_SHOW", function(selfRef)
     selfRef:ScanProfessions("event:TRADE_SKILL_SHOW")
   end)
@@ -251,6 +269,27 @@ function SND:MaybeAutoScanAndPublish()
 end
 
 function SND:ScanProfessions(trigger)
+  -- Combat protection: queue scans during combat
+  if InCombatLockdown() then
+    self.scanner.inCombat = true
+    if not self.scanner.pendingCombatScans then
+      self.scanner.pendingCombatScans = {}
+    end
+    -- Only queue if not already pending
+    local alreadyPending = false
+    for _, pendingTrigger in ipairs(self.scanner.pendingCombatScans) do
+      if pendingTrigger == trigger then
+        alreadyPending = true
+        break
+      end
+    end
+    if not alreadyPending then
+      table.insert(self.scanner.pendingCombatScans, trigger or "manual:scan")
+      debugScan(self, string.format("Scanner: scan queued during combat trigger=%s", tostring(trigger or "manual:scan")))
+    end
+    return
+  end
+
   local scanTrigger = trigger or "manual:scan"
   local hasGetTradeSkillLine = type(GetTradeSkillLine) == "function"
   local tradeSkillLine = nil
@@ -448,6 +487,26 @@ function SND:OpenNextQueuedProfession()
 end
 
 function SND:ScanCraftProfessions(trigger)
+  -- Combat protection: queue scans during combat
+  if InCombatLockdown() then
+    self.scanner.inCombat = true
+    if not self.scanner.pendingCombatScans then
+      self.scanner.pendingCombatScans = {}
+    end
+    local alreadyPending = false
+    for _, pendingTrigger in ipairs(self.scanner.pendingCombatScans) do
+      if pendingTrigger == trigger then
+        alreadyPending = true
+        break
+      end
+    end
+    if not alreadyPending then
+      table.insert(self.scanner.pendingCombatScans, trigger or "event:CRAFT_SHOW")
+      debugScan(self, string.format("Scanner: craft scan queued during combat trigger=%s", tostring(trigger or "event:CRAFT_SHOW")))
+    end
+    return
+  end
+
   local scanTrigger = trigger or "event:CRAFT_SHOW"
   if type(GetCraftDisplaySkillLine) ~= "function" then
     debugScan(self, string.format("Scanner: skip trigger=%s; craft display skill API unavailable.", tostring(scanTrigger)))

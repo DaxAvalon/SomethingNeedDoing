@@ -95,13 +95,42 @@ function SND:InitComms()
   self.comms.chunkBuffer = {}
   self.comms.guildMemberCache = self.comms.guildMemberCache or {}
   self.comms.guildMemberCacheLastRefresh = tonumber(self.comms.guildMemberCacheLastRefresh) or 0
+  self.comms.pendingCombatMessages = self.comms.pendingCombatMessages or {}
+  self.comms.inCombat = false
   if self.comms.sendLegacyRecipeChunks == nil then
     self.comms.sendLegacyRecipeChunks = false
   end
 
   self:RefreshGuildMemberCacheFromRoster()
 
+  -- Combat state tracking for comms
+  self:RegisterEvent("PLAYER_REGEN_DISABLED", function(selfRef)
+    selfRef.comms.inCombat = true
+  end)
+  self:RegisterEvent("PLAYER_REGEN_ENABLED", function(selfRef)
+    selfRef.comms.inCombat = false
+    -- Process pending messages after combat
+    if #selfRef.comms.pendingCombatMessages > 0 then
+      debugComms(selfRef, string.format("Comms: combat ended, processing %d pending messages", #selfRef.comms.pendingCombatMessages))
+      for _, msgData in ipairs(selfRef.comms.pendingCombatMessages) do
+        selfRef:HandleAddonMessage(msgData.payload, msgData.channel, msgData.sender)
+      end
+      selfRef.comms.pendingCombatMessages = {}
+    end
+  end)
+
   self.comms.ace:RegisterComm(self.comms.prefix, function(prefix, payload, channel, sender)
+    -- Combat protection: queue messages during combat
+    if InCombatLockdown() then
+      self.comms.inCombat = true
+      table.insert(self.comms.pendingCombatMessages, {
+        payload = payload,
+        channel = channel,
+        sender = sender
+      })
+      return
+    end
+
     if not self:PassRateLimit(sender) then
       return
     end
@@ -235,6 +264,11 @@ function SND:SendProfSummary()
 end
 
 function SND:SendAddonMessage(payload)
+  -- Combat protection: don't send messages during combat
+  if InCombatLockdown() then
+    debugComms(self, "Comms: message send blocked during combat")
+    return
+  end
   self.comms.ace:SendCommMessage(self.comms.prefix, payload, "GUILD")
 end
 
@@ -372,6 +406,33 @@ function SND:HandleRequestMessage(payload, kind, sender)
       self.db.requests[message.id] = message.data
       if kind == "REQ_NEW" and type(self.ShowIncomingRequestPopup) == "function" then
         self:ShowIncomingRequestPopup(message.id, message.data, sender)
+      end
+
+      -- Notify if this is a new request for a recipe the local player knows
+      if kind == "REQ_NEW" and message.data.recipeSpellID then
+        local localPlayerKey = self:GetPlayerKey(UnitName("player"))
+        local localPlayer = self.db.players[localPlayerKey]
+        local canCraft = false
+
+        if localPlayer and localPlayer.professions then
+          for _, prof in pairs(localPlayer.professions) do
+            if prof.recipes and prof.recipes[message.data.recipeSpellID] then
+              canCraft = true
+              break
+            end
+          end
+        end
+
+        if canCraft then
+          local recipeName = self:GetRecipeOutputItemName(message.data.recipeSpellID)
+          if not recipeName and self.db.recipeIndex[message.data.recipeSpellID] then
+            recipeName = self.db.recipeIndex[message.data.recipeSpellID].name
+          end
+          recipeName = recipeName or ("Recipe " .. tostring(message.data.recipeSpellID))
+
+          local requesterName = message.data.requesterName or strsplit("-", sender)
+          self:Print(string.format("|cffff8000New Request:|r |cffffd700%s|r requested by |cff00ff00%s|r - You can craft this!", recipeName, requesterName))
+        end
       end
     end
   end
@@ -525,8 +586,10 @@ function SND:IngestRecipeIndexPayload(encoded, sender, kind)
   local ok, recipeIndex = self.comms.serializer:Deserialize(inflated)
   if ok and type(recipeIndex) == "table" then
     local mergedCount = 0
+    local newRecipesLearned = {}
     local now = self:Now()
     local senderKey = self:GetPlayerKey(strsplit("-", sender)) or sender
+    local senderName = strsplit("-", sender)
 
     -- Ensure sender player entry exists
     local senderEntry = self.db.players[senderKey] or {}
@@ -545,6 +608,16 @@ function SND:IngestRecipeIndexPayload(encoded, sender, kind)
           local profKey = incoming.professionSkillLineID
           local profEntry = senderEntry.professions[profKey] or {}
           profEntry.recipes = profEntry.recipes or {}
+
+          -- Track if this is a NEW recipe for this player
+          local isNewRecipe = not profEntry.recipes[recipeSpellID]
+          if isNewRecipe then
+            table.insert(newRecipesLearned, {
+              recipeSpellID = recipeSpellID,
+              recipeName = incoming.name or ("Recipe " .. tostring(recipeSpellID))
+            })
+          end
+
           profEntry.recipes[recipeSpellID] = true
           senderEntry.professions[profKey] = profEntry
         end
@@ -553,6 +626,15 @@ function SND:IngestRecipeIndexPayload(encoded, sender, kind)
 
     -- Save updated sender entry back to DB
     self.db.players[senderKey] = senderEntry
+
+    -- Notify user about new recipes learned by other players
+    if #newRecipesLearned > 0 and senderKey ~= self:GetPlayerKey(UnitName("player")) then
+      for _, recipeData in ipairs(newRecipesLearned) do
+        local outputName = self:GetRecipeOutputItemName(recipeData.recipeSpellID)
+        local displayName = outputName or recipeData.recipeName
+        self:Print(string.format("|cff00ff00%s|r learned: |cffffd700%s|r", senderName or "Someone", displayName))
+      end
+    end
 
     debugComms(self, string.format(
       "Ingest: recipe index merge sender=%s kind=%s merged=%d localRecipeIndex=%d",
