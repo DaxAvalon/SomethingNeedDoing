@@ -462,6 +462,23 @@ function SND:HandleRequestMessage(payload, kind, sender)
     local requestsFrame = self.mainFrame.contentFrames[2]
     if requestsFrame and requestsFrame.listButtons then
       self:RefreshRequestList(requestsFrame)
+
+      -- Also update the selected request's details if it was updated
+      if message and message.id and requestsFrame.selectedRequestId == message.id then
+        -- Show notification if status changed and user is viewing this request
+        if kind == "REQ_UPD" and message.data and message.data.status then
+          local request = self.db.requests[message.id]
+          if request and self.db.config.showNotifications then
+            local statusChangeMsg = string.format(
+              "|cffff8000Request Status Changed:|r %s → |cff00ff00%s|r",
+              self:GetRecipeOutputItemName(request.recipeSpellID) or "Request",
+              message.data.status
+            )
+            self:DebugPrint(statusChangeMsg)
+          end
+        end
+        self:SelectRequest(requestsFrame, message.id)
+      end
     end
   end
 end
