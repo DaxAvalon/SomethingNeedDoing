@@ -367,6 +367,7 @@ function SND:CreateDirectoryTab(parent)
     insets = { left = 2, right = 2, top = 2, bottom = 2 },
   })
   filterBar:SetBackdropColor(0.08, 0.06, 0.03, 1)
+  filterBar:SetClipsChildren(true)
 
   local searchBox = CreateFrame("EditBox", nil, filterBar, "InputBoxTemplate")
   searchBox:SetSize(180, 28)
@@ -452,8 +453,8 @@ function SND:CreateDirectoryTab(parent)
   local listContainer = CreateFrame("Frame", nil, frame, "BackdropTemplate")
   listContainer:SetPoint("TOPLEFT", filterBar, "BOTTOMLEFT", 0, -8)
   listContainer:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 8, 12)
-  -- Use relative positioning: ~26% of parent width (min 720px * 0.26 = 187px)
-  listContainer:SetPoint("RIGHT", frame, "LEFT", 195, 0)
+  -- Use relative positioning: ~22% of default width (290px at 1280px default)
+  listContainer:SetPoint("RIGHT", frame, "LEFT", 290, 0)
   listContainer:SetBackdrop({
     bgFile = "Interface/Tooltips/UI-Tooltip-Background",
     edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
@@ -477,8 +478,8 @@ function SND:CreateDirectoryTab(parent)
   local detailContainer = CreateFrame("Frame", nil, frame, "BackdropTemplate")
   detailContainer:SetPoint("TOPLEFT", listContainer, "TOPRIGHT", columnGap, 0)
   detailContainer:SetPoint("BOTTOMLEFT", listContainer, "BOTTOMRIGHT", columnGap, 0)
-  -- Use relative positioning: ~25% of parent width (min 720px * 0.25 = 180px)
-  detailContainer:SetPoint("RIGHT", frame, "LEFT", 390, 0)
+  -- Use relative positioning: ~22% of default width (290px at 1280px default)
+  detailContainer:SetPoint("RIGHT", frame, "LEFT", 590, 0)
   detailContainer:SetBackdrop({
     bgFile = "Interface/Tooltips/UI-Tooltip-Background",
     edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
@@ -863,6 +864,7 @@ function SND:CreateRequestsTab(parent)
     insets = { left = 2, right = 2, top = 2, bottom = 2 },
   })
   filterBar:SetBackdropColor(0.08, 0.06, 0.03, 1)
+  filterBar:SetClipsChildren(true)
 
   local searchBox = CreateFrame("EditBox", nil, filterBar, "InputBoxTemplate")
   searchBox:SetSize(180, 28)
@@ -926,8 +928,8 @@ function SND:CreateRequestsTab(parent)
   local listContainer = CreateFrame("Frame", nil, frame, "BackdropTemplate")
   listContainer:SetPoint("TOPLEFT", filterBar, "BOTTOMLEFT", 0, -8)
   listContainer:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 8, 12)
-  -- Use relative positioning: ~40% of parent width (min 720px * 0.40 = 288px)
-  listContainer:SetPoint("RIGHT", frame, "LEFT", 296, 0)
+  -- Use relative positioning: ~45% of default width (576px at 1280px default)
+  listContainer:SetPoint("RIGHT", frame, "LEFT", 584, 0)
   listContainer:SetBackdrop({
     bgFile = "Interface/Tooltips/UI-Tooltip-Background",
     edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
@@ -1359,8 +1361,8 @@ function SND:CreateMeTab(parent)
   local leftColumn = CreateFrame("Frame", nil, frame)
   leftColumn:SetPoint("TOPLEFT", label, "BOTTOMLEFT", 0, -6)
   leftColumn:SetPoint("BOTTOM", frame, "BOTTOM", 0, 12)
-  -- Use relative positioning: ~30% of parent width (min 720px * 0.30 = 216px)
-  leftColumn:SetPoint("RIGHT", frame, "LEFT", 224, 0)
+  -- Use relative positioning: ~35% of default width (448px at 1280px default)
+  leftColumn:SetPoint("RIGHT", frame, "LEFT", 456, 0)
 
   local rightColumn = CreateFrame("Frame", nil, frame)
   rightColumn:SetPoint("TOPLEFT", leftColumn, "TOPRIGHT", 24, 0)
