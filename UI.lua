@@ -453,8 +453,8 @@ function SND:CreateDirectoryTab(parent)
   local listContainer = CreateFrame("Frame", nil, frame, "BackdropTemplate")
   listContainer:SetPoint("TOPLEFT", filterBar, "BOTTOMLEFT", 0, -8)
   listContainer:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 8, 12)
-  -- Use relative positioning: ~22% of default width (290px at 1280px default)
-  listContainer:SetPoint("RIGHT", frame, "LEFT", 290, 0)
+  -- Use relative positioning: ~26% of default width (330px at 1280px default)
+  listContainer:SetPoint("RIGHT", frame, "LEFT", 330, 0)
   listContainer:SetBackdrop({
     bgFile = "Interface/Tooltips/UI-Tooltip-Background",
     edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
