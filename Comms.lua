@@ -527,14 +527,33 @@ function SND:IngestRecipeIndexPayload(encoded, sender, kind)
     local mergedCount = 0
     local now = self:Now()
     local senderKey = self:GetPlayerKey(strsplit("-", sender)) or sender
+
+    -- Ensure sender player entry exists
+    local senderEntry = self.db.players[senderKey] or {}
+    senderEntry.professions = senderEntry.professions or {}
+
     for recipeSpellID, entry in pairs(recipeIndex) do
       local incoming = normalizeRecipeEntry(entry, recipeSpellID, now, senderKey)
       local existing = self.db.recipeIndex[recipeSpellID]
       if incoming and incomingWins(incoming, existing, recipeSpellID) then
         self.db.recipeIndex[recipeSpellID] = incoming
         mergedCount = mergedCount + 1
+
+        -- BUGFIX: Also populate sender's profession.recipes table
+        -- This ensures GetCraftersForRecipe can find remote players
+        if incoming.professionSkillLineID then
+          local profKey = incoming.professionSkillLineID
+          local profEntry = senderEntry.professions[profKey] or {}
+          profEntry.recipes = profEntry.recipes or {}
+          profEntry.recipes[recipeSpellID] = true
+          senderEntry.professions[profKey] = profEntry
+        end
       end
     end
+
+    -- Save updated sender entry back to DB
+    self.db.players[senderKey] = senderEntry
+
     debugComms(self, string.format(
       "Ingest: recipe index merge sender=%s kind=%s merged=%d localRecipeIndex=%d",
       tostring(sender),
@@ -542,6 +561,17 @@ function SND:IngestRecipeIndexPayload(encoded, sender, kind)
       mergedCount,
       countTableEntries(self.db and self.db.recipeIndex)
     ))
+
+    -- Refresh directory UI if recipes were merged
+    if mergedCount > 0 and self.mainFrame and self.mainFrame.contentFrames then
+      local directoryFrame = self.mainFrame.contentFrames[1]
+      if directoryFrame and directoryFrame.searchBox then
+        local query = directoryFrame.searchBox:GetText() or ""
+        if type(self.UpdateDirectoryResults) == "function" then
+          self:UpdateDirectoryResults(query)
+        end
+      end
+    end
   end
 end
 
