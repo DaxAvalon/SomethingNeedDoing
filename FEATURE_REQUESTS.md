@@ -376,6 +376,160 @@ Medium - Nice to have, not critical
 
 ---
 
+## Feature 5: Resizable Main Window
+
+### Current Behavior
+- Main window is fixed size
+- Cannot resize to see more content
+- Sections may be cramped on different screen resolutions
+- No way to customize layout to personal preference
+
+### Requested Behavior
+**Make main window resizable while maintaining readable sections**
+
+Requirements:
+1. **Resize handles** on corners and edges
+2. **Minimum size** - prevent shrinking below usable dimensions
+3. **Maximum size** - reasonable upper bound for UI scaling
+4. **Proportional scaling** - sections resize intelligently
+5. **Persist size** - remember window size between sessions
+
+### UI Behavior
+
+**Resize Handles:**
+- Bottom-right corner: Primary resize grip (visible)
+- All edges: Drag to resize in that direction
+- Corners: Drag to resize both dimensions
+
+**Layout Rules:**
+```
+┌─────────────────────────────────────┐
+│ [Tab1] [Tab2] [Tab3] [Tab4]   [X]  │ ← Fixed height header
+├─────────────────────┬───────────────┤
+│                     │               │
+│  Left Pane          │  Right Pane   │ ← Proportional split
+│  (Lists/Search)     │  (Details)    │    (60/40 or 50/50)
+│                     │               │
+│  Grows vertically   │  Grows both   │
+│                     │               │
+└─────────────────────┴───────────────┘
+```
+
+**Scaling Behavior by Tab:**
+
+**Directory Tab:**
+- Recipe list: Grows vertically, fixed columns
+- Detail pane: Grows both directions
+- Crafter list: Grows vertically
+- Material list: Grows vertically with scrolling
+
+**Requests Tab:**
+- Request list: Grows vertically
+- Detail pane: Grows both directions
+- Notes box: Grows vertically
+
+**Me Tab:**
+- Scan log: Grows both directions (main use case)
+- Status labels: Fixed size
+
+**Guild Roster Tab (if added):**
+- Member table: Grows both directions
+- More columns visible at larger sizes
+
+### Implementation
+
+**Step 1: Make frame resizable**
+```lua
+local mainFrame = CreateFrame("Frame", "SNDMainFrame", UIParent, "BackdropTemplate")
+mainFrame:SetResizable(true)
+mainFrame:SetMinResize(600, 400)  -- Minimum usable size
+mainFrame:SetMaxResize(1200, 900) -- Maximum reasonable size
+```
+
+**Step 2: Add resize grip**
+```lua
+local resizeButton = CreateFrame("Button", nil, mainFrame)
+resizeButton:SetSize(16, 16)
+resizeButton:SetPoint("BOTTOMRIGHT", -6, 6)
+resizeButton:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
+resizeButton:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
+resizeButton:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down")
+
+resizeButton:SetScript("OnMouseDown", function(self)
+  mainFrame:StartSizing("BOTTOMRIGHT")
+end)
+
+resizeButton:SetScript("OnMouseUp", function(self)
+  mainFrame:StopMovingOrSizing()
+  SND:SaveWindowSize()
+end)
+```
+
+**Step 3: Update child element anchors**
+```lua
+-- Use relative positioning instead of fixed offsets
+leftPane:SetPoint("TOPLEFT", 10, -40)
+leftPane:SetPoint("BOTTOMRIGHT", mainFrame, "BOTTOM", -5, 10)
+
+rightPane:SetPoint("TOPLEFT", mainFrame, "TOP", 5, -40)
+rightPane:SetPoint("BOTTOMRIGHT", -10, 10)
+```
+
+**Step 4: Persist window size**
+```lua
+function SND:SaveWindowSize()
+  local width, height = mainFrame:GetSize()
+  self.db.config.windowWidth = width
+  self.db.config.windowHeight = height
+end
+
+function SND:RestoreWindowSize()
+  local width = self.db.config.windowWidth or 800
+  local height = self.db.config.windowHeight or 600
+  mainFrame:SetSize(width, height)
+end
+```
+
+### Edge Cases
+
+**Minimum Size Constraints:**
+- Directory: 600x400 (enough for lists + details)
+- Requests: 650x450 (enough for request details)
+- Me: 500x350 (enough for scan log)
+- Guild Roster: 700x400 (enough for table columns)
+
+**Maximum Size:**
+- Cap at 1200x900 to prevent excessive screen coverage
+- Still allows dual-monitor setups
+
+**Aspect Ratio:**
+- Don't enforce strict ratio
+- Allow users to prefer tall/wide layouts
+
+**Scroll Regions:**
+- All scrollable areas (lists, logs) automatically benefit
+- More space = more visible rows without scrolling
+
+### Priority
+Medium-High - Quality of life improvement for all features
+
+### Benefits
+- Better scan log visibility (Me tab)
+- More requests visible at once
+- More recipe results visible
+- Accommodates different screen resolutions
+- User can customize to their preference
+
+### Estimated Time
+1-2 hours
+- Make frame resizable: 30 min
+- Update all child anchors: 45 min
+- Add resize grips: 15 min
+- Persist/restore size: 15 min
+- Test all tabs: 15 min
+
+---
+
 ## Future Enhancements (Out of Scope)
 
 - Request expiration (auto-cancel after X days)
