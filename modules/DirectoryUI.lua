@@ -2,26 +2,26 @@
 ================================================================================
 DirectoryUI Module
 ================================================================================
-Manages the Directory tab UI including recipe list rendering and pagination.
+Manages the Directory tab UI including recipe list rendering with scrolling.
 
 Purpose:
   - Display searchable, filterable recipe directory
   - Show crafter availability and online status
-  - Provide pagination for large result sets
+  - Provide scrollable list for browsing results
   - Display recipe details and material requirements
 
 UI Components:
   - Search box with real-time filtering
   - Profession/status filter dropdowns
-  - Paginated recipe list (scrollable)
+  - Scrollable recipe list (up to 100 visible results)
   - Recipe detail pane (crafters, materials, preview)
   - Item preview section with icon and metadata
 
-Pagination:
-  - Configurable page size (default: number of visible rows)
-  - Previous/Next navigation buttons
-  - Page indicator (current/total)
-  - Scroll position reset on page change
+Scrolling:
+  - Supports up to 100 simultaneous results
+  - Automatic scroll height adjustment
+  - Mouse wheel scrolling support
+  - Smooth navigation through large result sets
 
 Dependencies:
   - Requires: RecipeSearch.lua, RecipeData.lua, ItemCache.lua,
@@ -162,10 +162,6 @@ function SND:UpdateDirectoryResults(query)
 
   -- Update UI state
   directoryFrame.currentResults = results
-  directoryFrame.currentPage = tonumber(directoryFrame.currentPage) or 1
-  if directoryFrame.currentPage < 1 then
-    directoryFrame.currentPage = 1
-  end
 
   -- Render updated list
   self:RenderDirectoryList(directoryFrame, results)
@@ -176,18 +172,17 @@ end
 -- ============================================================================
 
 --[[
-  RenderDirectoryList - Render paginated recipe list
+  RenderDirectoryList - Render scrollable recipe list
 
   Purpose:
-    Renders the recipe list with pagination controls. Updates all visible
-    rows with recipe data and handles page navigation.
+    Renders the recipe list in a scrollable container. Updates all available
+    rows with recipe data (up to max button capacity).
 
   Algorithm:
-    1. Calculate pagination (page size, total pages, current page)
-    2. Update pagination UI (page label, prev/next buttons)
-    3. Reset scroll position to top
-    4. Populate visible rows with recipe data
-    5. Auto-select first recipe
+    1. Reset scroll position to top
+    2. Update scroll child height based on result count
+    3. Populate all rows with recipe data (up to max available rows)
+    4. Auto-select first recipe
 
   Parameters:
     @param directoryFrame (table) - Directory UI frame
@@ -195,37 +190,16 @@ end
 
   Side Effects:
     - Updates all listButtons with recipe data
-    - Updates pagination controls
+    - Adjusts scroll container height
     - Calls SelectDirectoryRecipe for first visible recipe
+
+  Note:
+    Maximum supported results = number of listButtons (typically 100).
+    Results beyond this limit are not displayed.
 ]]--
 function SND:RenderDirectoryList(directoryFrame, results)
   if not directoryFrame or not directoryFrame.listButtons then
     return
-  end
-
-  -- Calculate pagination
-  local pageSize = tonumber(directoryFrame.directoryPageSize) or #directoryFrame.listButtons
-  if pageSize < 1 then
-    pageSize = #directoryFrame.listButtons
-  end
-  local totalPages = math.max(1, math.ceil(#results / pageSize))
-  local page = tonumber(directoryFrame.currentPage) or 1
-  if page < 1 then
-    page = 1
-  elseif page > totalPages then
-    page = totalPages
-  end
-  directoryFrame.currentPage = page
-
-  -- Update pagination UI
-  if directoryFrame.directoryPageLabel then
-    directoryFrame.directoryPageLabel:SetText(string.format("%d / %d", page, totalPages))
-  end
-  if directoryFrame.directoryPrevPageButton then
-    directoryFrame.directoryPrevPageButton:SetEnabled(page > 1)
-  end
-  if directoryFrame.directoryNextPageButton then
-    directoryFrame.directoryNextPageButton:SetEnabled(page < totalPages)
   end
 
   -- Reset scroll position to top
@@ -233,16 +207,19 @@ function SND:RenderDirectoryList(directoryFrame, results)
     directoryFrame.listScrollFrame:SetVerticalScroll(0)
   end
 
-  -- Set scroll child height
+  -- Calculate total height needed for all results
+  local maxRows = #directoryFrame.listButtons
+  local displayCount = math.min(#results, maxRows)
+
+  -- Set scroll child height based on actual result count
   if directoryFrame.listScrollChild and directoryFrame.listRowHeight then
-    directoryFrame.listScrollChild:SetHeight(#directoryFrame.listButtons * directoryFrame.listRowHeight)
+    directoryFrame.listScrollChild:SetHeight(math.max(displayCount, 1) * directoryFrame.listRowHeight)
   end
 
-  -- Populate visible rows
-  local startIndex = (page - 1) * pageSize + 1
+  -- Populate all rows with recipe data
   local firstSelected = nil
   for i, row in ipairs(directoryFrame.listButtons) do
-    local entry = results[startIndex + i - 1]
+    local entry = results[i]
     if entry then
       -- Recipe exists for this row
       row.recipeSpellID = entry.recipeSpellID

@@ -414,42 +414,9 @@ function SND:CreateDirectoryTab(parent)
   listTitle:SetPoint("TOPLEFT", 8, -8)
   listTitle:SetText(T("Matching Items"))
 
-  local listPageBar = CreateFrame("Frame", nil, listContainer)
-  listPageBar:SetPoint("BOTTOMLEFT", 6, 6)
-  listPageBar:SetPoint("BOTTOMRIGHT", -6, 6)
-  listPageBar:SetHeight(24)
-
-  local prevPageButton = CreateFrame("Button", nil, listPageBar, "UIPanelButtonTemplate")
-  prevPageButton:SetPoint("LEFT", 0, 0)
-  prevPageButton:SetSize(30, 20)
-  prevPageButton:SetText("<")
-
-  local nextPageButton = CreateFrame("Button", nil, listPageBar, "UIPanelButtonTemplate")
-  nextPageButton:SetPoint("RIGHT", 0, 0)
-  nextPageButton:SetSize(30, 20)
-  nextPageButton:SetText(">")
-
-  local pageLabel = listPageBar:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-  pageLabel:SetPoint("CENTER", 0, 0)
-  pageLabel:SetText("1 / 1")
-
-  prevPageButton:SetScript("OnClick", function()
-    local page = tonumber(frame.currentPage) or 1
-    if page > 1 then
-      frame.currentPage = page - 1
-      SND:UpdateDirectoryResults(searchBox:GetText())
-    end
-  end)
-
-  nextPageButton:SetScript("OnClick", function()
-    local page = tonumber(frame.currentPage) or 1
-    frame.currentPage = page + 1
-    SND:UpdateDirectoryResults(searchBox:GetText())
-  end)
-
   local scrollFrame = CreateFrame("ScrollFrame", "SNDDirectoryScrollFrame", listContainer, "UIPanelScrollFrameTemplate")
   scrollFrame:SetPoint("TOPLEFT", 6, -28)
-  scrollFrame:SetPoint("BOTTOMRIGHT", listPageBar, "TOPRIGHT", -20, 4)
+  scrollFrame:SetPoint("BOTTOMRIGHT", -26, 6)
 
   local scrollChild = CreateFrame("Frame", nil, scrollFrame)
   scrollChild:SetSize(256, 120)
@@ -752,7 +719,8 @@ function SND:CreateDirectoryTab(parent)
     return row
   end
 
-  for i = 1, 8 do
+  -- Create more rows to support scrolling (100 max visible results)
+  for i = 1, 100 do
     createDirectoryRow(i)
   end
 
@@ -763,11 +731,6 @@ function SND:CreateDirectoryTab(parent)
   frame.listScrollFrame = scrollFrame
   frame.listScrollChild = scrollChild
   frame.listRowHeight = listRowHeight
-  frame.directoryPageSize = #listButtons
-  frame.currentPage = 1
-  frame.directoryPrevPageButton = prevPageButton
-  frame.directoryNextPageButton = nextPageButton
-  frame.directoryPageLabel = pageLabel
   frame.createDirectoryRow = createDirectoryRow
   frame.detailTitle = detailTitleText
   frame.detailTitleButton = detailTitle
