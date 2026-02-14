@@ -21,18 +21,18 @@ end
 
 local function refreshGuildRoster(self)
   if type(GuildRoster) == "function" then
-    self:DebugLog("Roster refresh API: GuildRoster()", true)
+    --self:DebugLog("Roster refresh API: GuildRoster()", true)
     GuildRoster()
     return true
   end
 
   if type(C_GuildInfo) == "table" and type(C_GuildInfo.GuildRoster) == "function" then
-    self:DebugLog("Roster refresh API: C_GuildInfo.GuildRoster()", true)
+    --self:DebugLog("Roster refresh API: C_GuildInfo.GuildRoster()", true)
     C_GuildInfo.GuildRoster()
     return true
   end
 
-  self:DebugLog("Roster refresh unavailable: no GuildRoster API found", true)
+  --self:DebugLog("Roster refresh unavailable: no GuildRoster API found", true)
   return false
 end
 
@@ -75,12 +75,12 @@ function SND:DeriveGuildRoleFromRoster(rankIndex, isGuildMaster)
 end
 
 function SND:InitRoster()
-  self:DebugLog(string.format(
-    "Roster init API probe: GuildRoster=%s C_GuildInfo=%s C_GuildInfo.GuildRoster=%s",
-    tostring(type(GuildRoster) == "function"),
-    tostring(type(C_GuildInfo) == "table"),
-    tostring(type(C_GuildInfo and C_GuildInfo.GuildRoster) == "function")
-  ), true)
+  --self:DebugLog(string.format(
+    --"Roster init API probe: GuildRoster=%s C_GuildInfo=%s C_GuildInfo.GuildRoster=%s",
+    --tostring(type(GuildRoster) == "function"),
+    --tostring(type(C_GuildInfo) == "table"),
+    --tostring(type(C_GuildInfo and C_GuildInfo.GuildRoster) == "function")
+  --), true)
   if self.RegisterBucketEvent then
     self:RegisterBucketEvent("GUILD_ROSTER_UPDATE", 1.0, function()
       self:ScanGuildRoster()

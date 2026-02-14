@@ -229,6 +229,8 @@ function SND:HandleAddonMessage(payload, channel, sender)
     self:HandleRequestMessage(payload, "REQ_DEL", sender)
   elseif messageType == "REQ_FULL" then
     self:HandleRequestMessage(payload, "REQ_FULL", sender)
+  elseif messageType == "REQ_NOTIFY" then
+    self:HandleDeliveryNotification(payload, sender)
   end
 end
 
@@ -461,6 +463,38 @@ function SND:HandleRequestMessage(payload, kind, sender)
     if requestsFrame and requestsFrame.listButtons then
       self:RefreshRequestList(requestsFrame)
     end
+  end
+end
+
+function SND:HandleDeliveryNotification(payload, sender)
+  local encoded = string.match(payload, "^REQ_NOTIFY%|(.*)$")
+  if not encoded then
+    return
+  end
+
+  local decoded = self.comms.deflate:DecodeForWoWAddonChannel(encoded)
+  if not decoded then
+    return
+  end
+  local inflated = self.comms.deflate:DecompressDeflate(decoded)
+  if not inflated then
+    return
+  end
+  local ok, message = self.comms.serializer:Deserialize(inflated)
+  if not ok or type(message) ~= "table" then
+    return
+  end
+
+  -- Only show to the requester
+  local localPlayerKey = self:GetPlayerKey(UnitName("player"))
+  if message.requester ~= localPlayerKey then
+    return
+  end
+
+  -- Show notification if enabled and not in combat
+  local showNotifications = self.db and self.db.config and self.db.config.showNotifications
+  if showNotifications and not InCombatLockdown() and message.message then
+    self:Print(string.format("|cff00ff00[Delivery]|r %s", message.message))
   end
 end
 

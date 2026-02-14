@@ -34,10 +34,13 @@ modules/RecipeData.lua
 modules/RecipeSearch.lua
 modules/DirectoryUI.lua
 
+# Request System
+requests/RequestCore.lua
+requests/RequestUI.lua
+
 Options.lua
 Roster.lua
 Scanner.lua
-Requests.lua
 Minimap.lua
 UI.lua
 Comms.lua

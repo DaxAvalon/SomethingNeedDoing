@@ -181,6 +181,7 @@ end
 
 function SND:InitUI()
   self:CreateMainWindow()
+  self:CreateRequestPopup()
 end
 
 function SND:CreateMainWindow()
@@ -1009,8 +1010,16 @@ function SND:CreateRequestsTab(parent)
   statusLine:SetPoint("TOPLEFT", notesBox, "BOTTOMLEFT", 0, -8)
   statusLine:SetText("Status: -")
 
+  local workflowStatus = detailContainer:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  workflowStatus:SetPoint("TOPLEFT", statusLine, "BOTTOMLEFT", 0, -4)
+  workflowStatus:SetPoint("RIGHT", detailContainer, "RIGHT", -8, 0)
+  workflowStatus:SetJustifyH("LEFT")
+  workflowStatus:SetJustifyV("TOP")
+  workflowStatus:SetWordWrap(true)
+  workflowStatus:SetText("")
+
   local materialsTitle = detailContainer:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-  materialsTitle:SetPoint("TOPLEFT", statusLine, "BOTTOMLEFT", 0, -10)
+  materialsTitle:SetPoint("TOPLEFT", workflowStatus, "BOTTOMLEFT", 0, -8)
   materialsTitle:SetText("Materials Supplied")
 
   local materialsScroll = CreateFrame("ScrollFrame", nil, detailContainer, "UIPanelScrollFrameTemplate")
@@ -1227,6 +1236,7 @@ function SND:CreateRequestsTab(parent)
   frame.detailItemTitle = detailItemTitle
   frame.detailItemIcon = detailItemIcon
   frame.statusLine = statusLine
+  frame.workflowStatus = workflowStatus
   frame.detailInfo = detailInfo
   frame.materialsList = materialsList
   frame.materialsScrollChild = materialsChild
@@ -2543,21 +2553,143 @@ function SND:ShowIncomingRequestPopup(requestId, requestData, sender)
     return
   end
 
-  local recipe = self.db and self.db.recipeIndex and self.db.recipeIndex[recipeSpellID] or nil
-  local prefill = {
-    recipeSpellID = recipeSpellID,
-    recipeName = recipe and recipe.name or nil,
+  -- Show custom popup notification
+  if self.requestPopup then
+    self:ShowRequestNotificationPopup(requestId, requestData, sender)
+  end
+end
+
+function SND:CreateRequestPopup()
+  local popup = CreateFrame("Frame", "SNDRequestPopup", UIParent, "BackdropTemplate")
+  popup:SetSize(400, 180)
+  popup:SetPoint("TOP", 0, -150)
+  popup:SetFrameStrata("DIALOG")
+  popup:SetFrameLevel(100)
+  popup:SetBackdrop({
+    bgFile = "Interface/DialogFrame/UI-DialogBox-Background",
+    edgeFile = "Interface/DialogFrame/UI-DialogBox-Border",
+    tile = true,
+    tileSize = 32,
+    edgeSize = 32,
+    insets = { left = 11, right = 12, top = 12, bottom = 11 },
+  })
+  popup:Hide()
+
+  -- Title
+  local title = popup:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+  title:SetPoint("TOP", 0, -20)
+  title:SetText("New Craft Request")
+  popup.title = title
+
+  -- Item icon
+  local icon = popup:CreateTexture(nil, "ARTWORK")
+  icon:SetSize(40, 40)
+  icon:SetPoint("TOPLEFT", 20, -50)
+  popup.icon = icon
+
+  -- Item name
+  local itemName = popup:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+  itemName:SetPoint("LEFT", icon, "RIGHT", 8, 10)
+  itemName:SetPoint("RIGHT", popup, "RIGHT", -20, 0)
+  itemName:SetJustifyH("LEFT")
+  itemName:SetWordWrap(true)
+  popup.itemName = itemName
+
+  -- Requester name
+  local requester = popup:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  requester:SetPoint("TOPLEFT", icon, "BOTTOMLEFT", 0, -8)
+  requester:SetPoint("RIGHT", popup, "RIGHT", -20, 0)
+  requester:SetJustifyH("LEFT")
+  popup.requester = requester
+
+  -- Claim & Craft button
+  local claimButton = CreateFrame("Button", nil, popup, "UIPanelButtonTemplate")
+  claimButton:SetSize(140, 25)
+  claimButton:SetPoint("BOTTOMLEFT", 20, 20)
+  claimButton:SetText("Claim & Craft")
+  claimButton:SetScript("OnClick", function()
+    if popup.requestId and popup.addon then
+      -- Claim the request
+      popup.addon:UpdateRequestStatus(popup.requestId, "CLAIMED", popup.addon:GetPlayerKey(UnitName("player")))
+
+      -- Open main window and switch to Requests tab
+      if popup.addon.mainFrame then
+        popup.addon.mainFrame:Show()
+        popup.addon:SelectTab(2) -- Requests tab
+
+        -- Select the request
+        if popup.addon.mainFrame.contentFrames and popup.addon.mainFrame.contentFrames[2] then
+          local requestsFrame = popup.addon.mainFrame.contentFrames[2]
+          popup.addon:RefreshRequestList(requestsFrame)
+          popup.addon:SelectRequest(requestsFrame, popup.requestId)
+        end
+      end
+
+      popup:Hide()
+    end
+  end)
+  popup.claimButton = claimButton
+
+  -- Dismiss button
+  local dismissButton = CreateFrame("Button", nil, popup, "UIPanelButtonTemplate")
+  dismissButton:SetSize(100, 25)
+  dismissButton:SetPoint("LEFT", claimButton, "RIGHT", 10, 0)
+  dismissButton:SetText("Dismiss")
+  dismissButton:SetScript("OnClick", function()
+    popup:Hide()
+  end)
+  popup.dismissButton = dismissButton
+
+  -- Auto-hide timer
+  popup.autoHideTime = 20
+  popup:SetScript("OnUpdate", function(self, elapsed)
+    if not self:IsShown() then
+      return
+    end
+
+    self.autoHideTime = self.autoHideTime - elapsed
+    if self.autoHideTime <= 0 then
+      self:Hide()
+    end
+  end)
+
+  -- Reset timer on show
+  popup:SetScript("OnShow", function(self)
+    self.autoHideTime = 20
+  end)
+
+  self.requestPopup = popup
+end
+
+function SND:ShowRequestNotificationPopup(requestId, requestData, sender)
+  if not self.requestPopup then
+    return
+  end
+
+  local popup = self.requestPopup
+  popup.requestId = requestId
+  popup.addon = self
+
+  -- Get item info
+  local recipeSpellID = self.NormalizeRecipeSpellID and self:NormalizeRecipeSpellID(requestData.recipeSpellID)
+    or tonumber(requestData.recipeSpellID)
+
+  local itemLink = requestData.itemLink or self:GetRecipeOutputItemLink(recipeSpellID)
+  local itemIcon = requestData.itemIcon or self:GetRecipeOutputItemIcon(recipeSpellID)
+  local _, itemText = self:ResolveReadableItemDisplay(recipeSpellID, {
     itemID = requestData.itemID,
     itemLink = requestData.itemLink,
     itemText = requestData.itemText,
-    professionName = recipe and recipe.professionName or nil,
-    professionSkillLineID = recipe and recipe.professionSkillLineID or nil,
-    crafterName = sender,
-  }
+  })
 
-  self:ShowRequestModalForRecipe(recipeSpellID, prefill)
+  -- Update popup content
+  popup.icon:SetTexture(itemIcon or "Interface/Icons/INV_Misc_QuestionMark")
+  popup.itemName:SetText(itemLink or itemText or "Unknown Item")
 
-  if self.requestModal and self.requestModal.titleText then
-    self.requestModal.titleText:SetText("Request Received")
-  end
+  local requesterName = requestData.requester and requestData.requester:match("^[^%-]+") or sender
+  popup.requester:SetText(string.format("Requested by: %s", requesterName))
+
+  -- Show popup
+  popup:Show()
+  popup:Raise()
 end

@@ -79,7 +79,7 @@ function SND:InitItemCache()
     end, 60)
   end
 
-  self:DebugLog("ItemCache: initialized")
+  --self:DebugLog("ItemCache: initialized")
 end
 
 --[[
@@ -151,7 +151,7 @@ function SND:WarmItemCache(itemIDs, recipeSpellID, callback)
   end
 
   if queued > 0 then
-    self:DebugLog(string.format("ItemCache: queued %d items for warming", queued))
+    --self:DebugLog(string.format("ItemCache: queued %d items for warming", queued))
     -- Trigger batch processing
     self:ScheduleItemCacheBatch()
   end
@@ -263,7 +263,7 @@ function SND:ProcessItemCacheBatch()
           if type(callback) == "function" then
             local ok, err = pcall(callback, itemID, self.itemCache.cachedItems[itemID])
             if not ok then
-              self:DebugLog(string.format("ItemCache: callback error for item %d: %s", itemID, tostring(err)))
+              --self:DebugLog(string.format("ItemCache: callback error for item %d: %s", itemID, tostring(err)))
             end
           end
         end
@@ -282,7 +282,7 @@ function SND:ProcessItemCacheBatch()
   self.itemCache.processingBatch = false
 
   if cached > 0 or processed > 0 then
-    self:DebugLog(string.format("ItemCache: batch processed=%d cached=%d stillPending=%d", processed, cached, stillPending))
+    --self:DebugLog(string.format("ItemCache: batch processed=%d cached=%d stillPending=%d", processed, cached, stillPending))
   end
 
   -- Schedule next batch if items remain pending
@@ -353,7 +353,7 @@ function SND:OnItemInfoReceived(itemID, success)
       if type(callback) == "function" then
         local ok, err = pcall(callback, itemID, self.itemCache.cachedItems[itemID])
         if not ok then
-          self:DebugLog(string.format("ItemCache: callback error for item %d: %s", itemID, tostring(err)))
+          --self:DebugLog(string.format("ItemCache: callback error for item %d: %s", itemID, tostring(err)))
         end
       end
     end
@@ -361,7 +361,7 @@ function SND:OnItemInfoReceived(itemID, success)
     -- Remove from pending
     self.itemCache.pendingItems[itemID] = nil
 
-    self:DebugLog(string.format("ItemCache: item %d cached via GET_ITEM_INFO_RECEIVED", itemID))
+    --self:DebugLog(string.format("ItemCache: item %d cached via GET_ITEM_INFO_RECEIVED", itemID))
 
     -- Trigger UI refresh (debounced)
     self:RefreshUIAfterCacheWarm()
@@ -463,7 +463,7 @@ function SND:CleanupItemCache()
   end
 
   if removed > 0 then
-    self:DebugLog(string.format("ItemCache: cleaned up %d stale items", removed))
+    --self:DebugLog(string.format("ItemCache: cleaned up %d stale items", removed))
   end
 end
 

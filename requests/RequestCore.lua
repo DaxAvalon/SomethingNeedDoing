@@ -1,3 +1,51 @@
+--[[
+================================================================================
+RequestCore Module
+================================================================================
+Core request management system for guild craft request board.
+
+Purpose:
+  - Create, update, and delete craft requests
+  - Manage request lifecycle (OPEN → CLAIMED → CRAFTED → DELIVERED)
+  - Enforce permissions and authorization policies
+  - Handle request synchronization across guild
+
+Request Lifecycle:
+  1. OPEN: Request created, available for claiming
+  2. CLAIMED: Assigned to a crafter
+  3. CRAFTED: Item has been crafted
+  4. DELIVERED: Completed successfully
+  5. CANCELLED: Cancelled by requester or moderator
+
+Key Components:
+  - Request CRUD operations (Create, Update, Delete)
+  - Permission system (requester, claimer, officer, admin roles)
+  - Audit trail for all status changes
+  - Material snapshot tracking
+  - Network synchronization (via Comms module)
+
+Permissions:
+  - Requester can: edit notes, cancel own requests
+  - Claimer can: mark crafted, delivered
+  - Officers/Admins can: moderate (force status, delete)
+  - Guild Master has full permissions
+
+Data Structures:
+  - Request: {id, recipeSpellID, qty, notes, status, requester, claimedBy, ...}
+  - Tombstone: Deletion record for sync
+  - Audit: Status change history
+
+Dependencies:
+  - Requires: Utils.lua (GetPlayerKey, Now, HashString),
+              DB.lua (requests, players, config),
+              Comms.lua (SendAddonMessage, serializer, deflate)
+  - Used by: RequestUI.lua (all request operations)
+
+Author: SND Team
+Last Modified: 2026-02-13
+================================================================================
+]]--
+
 local addonName = ...
 local SND = _G[addonName]
 
@@ -272,6 +320,11 @@ function SND:UpdateRequestStatus(requestId, newStatus, claimedBy, options)
     end
   elseif newStatus ~= STATUS_CANCELLED then
     request.cancellation = nil
+  end
+
+  -- Send delivery notification to requester
+  if newStatus == STATUS_DELIVERED then
+    self:SendDeliveryNotification(request, actorKey)
   end
 
   self:SendRequestUpdate(requestId, request)
@@ -683,7 +736,7 @@ function SND:GetRecipeReagents(recipeSpellID)
   if recipeEntry and next(reagents) then
     recipeEntry.reagents = reagents
     recipeEntry.lastUpdated = self:Now()
-    self:DebugLog(string.format("Requests: cached reagents for recipe %s", tostring(recipeSpellID)))
+    --self:DebugLog(string.format("Requests: cached reagents for recipe %s", tostring(recipeSpellID)))
   end
 
   return next(reagents) and reagents or nil
@@ -701,6 +754,67 @@ function SND:SendRequestUpdate(requestId, request)
   local compressed = self.comms.deflate:CompressDeflate(serialized)
   local encoded = self.comms.deflate:EncodeForWoWAddonChannel(compressed)
   self:SendAddonMessage(string.format("REQ_UPD|%s", encoded))
+end
+
+--[[
+  SendDeliveryNotification - Notify requester when request is delivered
+
+  Purpose:
+    Sends a chat message to the requester when a crafter marks the
+    request as delivered.
+
+  Parameters:
+    @param request (table) - Request object
+    @param crafterKey (string) - Crafter's player key (who delivered)
+
+  Side Effects:
+    - Sends addon message to guild with delivery notification
+    - Shows local notification if enabled
+]]--
+function SND:SendDeliveryNotification(request, crafterKey)
+  if not request or not request.requester then
+    return
+  end
+
+  -- Get item name
+  local itemName
+  if request.itemLink then
+    itemName = request.itemLink
+  else
+    local _, resolvedText = self:ResolveReadableItemDisplay(request.recipeSpellID, {
+      itemID = request.itemID,
+      itemLink = request.itemLink,
+      itemText = request.itemText,
+    })
+    itemName = resolvedText or "your request"
+  end
+
+  -- Get crafter display name
+  local crafterName = crafterKey and crafterKey:match("^[^%-]+") or "Unknown"
+
+  -- Create notification message
+  local message = string.format("%s has delivered your request: %s", crafterName, itemName)
+
+  -- Send notification via addon message
+  local payload = {
+    type = "DELIVERY",
+    requestId = request.id,
+    requester = request.requester,
+    crafter = crafterKey,
+    message = message,
+  }
+  local serialized = self.comms.serializer:Serialize(payload)
+  local compressed = self.comms.deflate:CompressDeflate(serialized)
+  local encoded = self.comms.deflate:EncodeForWoWAddonChannel(compressed)
+  self:SendAddonMessage(string.format("REQ_NOTIFY|%s", encoded))
+
+  -- Show local notification if this is the requester
+  local localPlayerKey = self:GetPlayerKey(UnitName("player"))
+  if request.requester == localPlayerKey then
+    if self.db.config.showNotifications then
+      self:Print(string.format("|cff00ff00[Delivery]|r %s", message))
+    end
+  end
 end
 
 function SND:DeleteRequest(requestId, reason, source)
