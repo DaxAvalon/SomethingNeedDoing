@@ -86,6 +86,7 @@ function SND:InitDB()
   self.db = self.dbRoot.profile
   self:EnsureDBDefaults()
   self:EnsureGuildScope()
+  self:MigrateRecipeIndexToPlayerProfessions()
 end
 
 function SND:ResetDB()
@@ -127,6 +128,42 @@ function SND:ResetDB()
   end
   if type(self.RefreshAllTabs) == "function" then
     self:RefreshAllTabs()
+  end
+end
+
+function SND:MigrateRecipeIndexToPlayerProfessions()
+  -- One-time migration to fix recipes from remote players not appearing in directory
+  -- Rebuilds player.professions[x].recipes from recipeIndex entries
+  if self.db.config.recipeIndexMigrated then
+    return
+  end
+
+  local migratedCount = 0
+  for recipeSpellID, entry in pairs(self.db.recipeIndex or {}) do
+    if entry.updatedBy and entry.professionSkillLineID then
+      local playerKey = entry.updatedBy
+      local profKey = entry.professionSkillLineID
+
+      local playerEntry = self.db.players[playerKey]
+      if playerEntry then
+        playerEntry.professions = playerEntry.professions or {}
+        local profEntry = playerEntry.professions[profKey] or {}
+        profEntry.recipes = profEntry.recipes or {}
+
+        if not profEntry.recipes[recipeSpellID] then
+          profEntry.recipes[recipeSpellID] = true
+          migratedCount = migratedCount + 1
+        end
+
+        playerEntry.professions[profKey] = profEntry
+      end
+    end
+  end
+
+  self.db.config.recipeIndexMigrated = true
+
+  if migratedCount > 0 then
+    self:DebugLog(string.format("Migration: Synced %d recipes from recipeIndex to player professions", migratedCount), true)
   end
 end
 
