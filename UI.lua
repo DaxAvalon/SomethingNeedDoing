@@ -387,32 +387,36 @@ function SND:CreateDirectoryTab(parent)
   end)
 
   local searchLabel = filterBar:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-  searchLabel:SetPoint("BOTTOMLEFT", searchBox, "TOPLEFT", 0, -4)
+  searchLabel:SetPoint("BOTTOMLEFT", searchBox, "TOPLEFT", 0, 0)
   searchLabel:SetText(T("Search"))
 
+  -- Profession Filter
   local professionLabel = filterBar:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-  professionLabel:SetPoint("BOTTOMLEFT", searchBox, "TOPRIGHT", 12, -4)
+  professionLabel:SetPoint("TOPLEFT", searchLabel, "TOPRIGHT", 160, 0)
   professionLabel:SetText(T("Profession"))
 
   local professionDrop = CreateFrame("Frame", "SNDProfessionDropDown", filterBar, "UIDropDownMenuTemplate")
-  professionDrop:SetPoint("LEFT", professionLabel, "RIGHT", -10, -16)
+  professionDrop:SetPoint("LEFT", professionLabel, "LEFT", -18, -22)
 
+  -- Online Only checkbox
   local onlineBox, onlineOnly = CreateBoundedCheckbox(filterBar, T("Online Only"))
-  onlineBox:SetPoint("LEFT", professionDrop, "RIGHT", 0, -4)
+  onlineBox:SetPoint("LEFT", professionDrop, "RIGHT", 0, 12)
   onlineOnly:SetScript("OnClick", function(btn)
     frame.onlineOnly = btn:GetChecked() and true or false
     SND:UpdateDirectoryResults(searchBox:GetText())
   end)
 
+  -- Has Materials checkbox
   local matsBox, matsOnly = CreateBoundedCheckbox(filterBar, T("Has Materials"))
-  matsBox:SetPoint("LEFT", onlineBox, "RIGHT", 2, 0)
+  matsBox:SetPoint("LEFT", onlineBox, "LEFT", 0, -28)
   matsOnly:SetScript("OnClick", function(btn)
     frame.sharedMatsOnly = btn:GetChecked() and true or false
     SND:UpdateDirectoryResults(searchBox:GetText())
   end)
 
+  -- Hide My Recipies checkbox
   local hideOwnBox, hideOwnCheckbox = CreateBoundedCheckbox(filterBar, T("Hide My Recipes"))
-  hideOwnBox:SetPoint("LEFT", matsBox, "RIGHT", 2, 0)
+  hideOwnBox:SetPoint("LEFT", matsBox, "LEFT", 0, -28)
   hideOwnCheckbox:SetScript("OnClick", function(btn)
     frame.hideOwnRecipes = btn:GetChecked() and true or false
     SND:UpdateDirectoryResults(searchBox:GetText())
@@ -420,11 +424,11 @@ function SND:CreateDirectoryTab(parent)
 
   -- Sort dropdown
   local sortLabel = filterBar:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-  sortLabel:SetPoint("TOPLEFT", searchLabel, "BOTTOMLEFT", 0, -36)
+  sortLabel:SetPoint("LEFT", searchLabel, "LEFT", 0, -40)
   sortLabel:SetText(T("Sort by"))
 
   local sortDrop = CreateFrame("Frame", "SNDSortDropDown", filterBar, "UIDropDownMenuTemplate")
-  sortDrop:SetPoint("LEFT", sortLabel, "RIGHT", -10, -16)
+  sortDrop:SetPoint("TOPLEFT", sortLabel, "BOTTOMLEFT", -20, 0)
 
   UIDropDownMenu_Initialize(sortDrop, function(dropdown, level)
     local options = {
@@ -445,7 +449,7 @@ function SND:CreateDirectoryTab(parent)
       UIDropDownMenu_AddButton(info, level)
     end
   end)
-  UIDropDownMenu_SetWidth(sortDrop, 150)
+  UIDropDownMenu_SetWidth(sortDrop, 110)
   UIDropDownMenu_SetText(sortDrop, T("Name (A-Z)"))
 
   local columnGap = 10
@@ -454,7 +458,7 @@ function SND:CreateDirectoryTab(parent)
   listContainer:SetPoint("TOPLEFT", filterBar, "BOTTOMLEFT", 0, -8)
   listContainer:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 8, 12)
   -- Use relative positioning: ~26% of default width (330px at 1280px default)
-  listContainer:SetPoint("RIGHT", frame, "LEFT", 330, 0)
+  listContainer:SetPoint("RIGHT", frame, "LEFT", 300, 0)
   listContainer:SetBackdrop({
     bgFile = "Interface/Tooltips/UI-Tooltip-Background",
     edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
@@ -570,7 +574,7 @@ function SND:CreateDirectoryTab(parent)
   crafterScrollFrame:SetPoint("BOTTOMRIGHT", detailContainer, "BOTTOMRIGHT", -26, 8)
 
   local crafterScrollChild = CreateFrame("Frame", nil, crafterScrollFrame)
-  crafterScrollChild:SetSize(280, 120)
+  crafterScrollChild:SetSize(320, 120)
   crafterScrollFrame:SetScrollChild(crafterScrollChild)
 
   local crafterRows = {}
@@ -682,6 +686,8 @@ function SND:CreateDirectoryTab(parent)
 
   local matsHeader = rightContainer:CreateFontString(nil, "OVERLAY", "GameFontNormal")
   matsHeader:SetPoint("TOPLEFT", itemPreviewCrafter, "BOTTOMLEFT", 0, -10)
+  matsHeader:SetPoint("RIGHT", -4, 0)
+  matsHeader:SetJustifyH("LEFT")
   matsHeader:SetText(T("Required Materials"))
 
   local matsScrollFrame = CreateFrame("ScrollFrame", nil, rightContainer, "UIPanelScrollFrameTemplate")
@@ -856,7 +862,7 @@ function SND:CreateRequestsTab(parent)
   local filterBar = CreateFrame("Frame", nil, frame, "BackdropTemplate")
   filterBar:SetPoint("TOPLEFT", 8, -12)
   filterBar:SetPoint("TOPRIGHT", -8, -12)
-  filterBar:SetHeight(112)
+  filterBar:SetHeight(110)
   filterBar:SetBackdrop({
     bgFile = "Interface/Tooltips/UI-Tooltip-Background",
     edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
@@ -886,39 +892,74 @@ function SND:CreateRequestsTab(parent)
   end)
 
   local searchLabel = filterBar:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-  searchLabel:SetPoint("BOTTOMLEFT", searchBox, "TOPLEFT", 0, 4)
+  searchLabel:SetPoint("BOTTOMLEFT", searchBox, "TOPLEFT", 0, 0)
   searchLabel:SetText("Search")
 
+    -- Sort dropdown
+  -- local sortLabel = filterBar:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+  -- sortLabel:SetPoint("LEFT", searchLabel, "LEFT", 0, -40)
+  -- sortLabel:SetText(T("Sort by"))
+
+  -- local sortDrop = CreateFrame("Frame", "SNDSortDropDown", filterBar, "UIDropDownMenuTemplate")
+  -- sortDrop:SetPoint("TOPLEFT", sortLabel, "BOTTOMLEFT", -20, 0)
+
+  -- UIDropDownMenu_Initialize(sortDrop, function(dropdown, level)
+  --   local options = {
+  --     { value = "namee_az", text = T("Name (A-Z)") },
+  --     { value = "name_za", text = T("Name (Z-A)") },
+  --     { value = "rarity", text = T("Rarity (High to Low)") },
+  --     { value = "status", text = T("Status") },
+  --   }
+  --   for _, option in ipairs(options) do
+  --     local info = UIDropDownMenu_CreateInfo()
+  --     info.text = option.text
+  --     info.checked = option.value == frame.sortBy
+  --     info.func = function()
+  --       frame.sortBy = option.value
+  --       UIDropDownMenu_SetText(sortDrop, option.text)
+  --       SND:UpdateDirectoryResults(searchBox:GetText())
+  --     end
+  --     UIDropDownMenu_AddButton(info, level)
+  --   end
+  -- end)
+  -- UIDropDownMenu_SetWidth(sortDrop, 110)
+  -- UIDropDownMenu_SetText(sortDrop, T("Name (A-Z)"))
+
+  -- Profession filter
   local professionLabel = filterBar:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-  professionLabel:SetPoint("BOTTOMLEFT", searchBox, "TOPRIGHT", 12, 4)
+  professionLabel:SetPoint("TOPLEFT", searchLabel, "TOPRIGHT", 160, 0)
   professionLabel:SetText("Profession")
 
   local professionDrop = CreateFrame("Frame", "SNDRequestProfessionDropDown", filterBar, "UIDropDownMenuTemplate")
-  professionDrop:SetPoint("TOPLEFT", searchBox, "TOPRIGHT", 8, 2)
+  professionDrop:SetPoint("TOPLEFT", professionLabel, "BOTTOMLEFT", -18, 0)
 
+  -- Status filter
   local statusLabel = filterBar:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-  statusLabel:SetPoint("BOTTOMLEFT", professionDrop, "TOPRIGHT", 8, 2)
+  statusLabel:SetPoint("TOPLEFT", professionLabel, "BOTTOMLEFT", 0, -30)
   statusLabel:SetText("Status")
 
   local statusDrop = CreateFrame("Frame", "SNDRequestStatusDropDown", filterBar, "UIDropDownMenuTemplate")
-  statusDrop:SetPoint("TOPLEFT", professionDrop, "TOPRIGHT", 12, 0)
+  statusDrop:SetPoint("TOPLEFT", statusLabel, "BOTTOMLEFT", -18, 0)
 
-  local onlyMineBox, onlyMine = CreateBoundedCheckbox(filterBar, T("Online Only"))
-  onlyMineBox:SetPoint("TOPLEFT", searchBox, "BOTTOMLEFT", 0, -12)
+  -- OnlyMine
+  local onlyMineBox, onlyMine = CreateBoundedCheckbox(filterBar, T("My Requests"))
+  onlyMineBox:SetPoint("LEFT", professionDrop, "RIGHT", 0, 12)
   onlyMine:SetScript("OnClick", function(btn)
     frame.onlyMine = btn:GetChecked() and true or false
     SND:RefreshRequestList(frame)
   end)
 
+  -- Unclaimed only
   local onlyClaimableBox, onlyClaimable = CreateBoundedCheckbox(filterBar, "Unclaimed Only")
-  onlyClaimableBox:SetPoint("LEFT", onlyMineBox, "RIGHT", 8, 0)
+  onlyClaimableBox:SetPoint("LEFT", onlyMineBox, "LEFT", 0, -28)
   onlyClaimable:SetScript("OnClick", function(btn)
     frame.onlyClaimable = btn:GetChecked() and true or false
     SND:RefreshRequestList(frame)
   end)
 
+  -- Has materials
   local hasMatsBox, hasMatsCheck = CreateBoundedCheckbox(filterBar, "Has Materials")
-  hasMatsBox:SetPoint("LEFT", onlyClaimableBox, "RIGHT", 8, 0)
+  hasMatsBox:SetPoint("LEFT", onlyClaimableBox, "LEFT", 0, -28)
   hasMatsCheck:SetScript("OnClick", function(btn)
     frame.hasMaterialsOnly = btn:GetChecked() and true or false
     SND:RefreshRequestList(frame)
@@ -1004,14 +1045,20 @@ function SND:CreateRequestsTab(parent)
 
   local detailTitle = detailContainer:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
   detailTitle:SetPoint("TOPLEFT", 8, -8)
+  detailTitle:SetPoint("RIGHT", -4, 0)
+  detailTitle:SetJustifyH("LEFT")
   detailTitle:SetText("Unclaimed Request")
 
   local detailRequester = detailContainer:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
   detailRequester:SetPoint("TOPLEFT", detailTitle, "BOTTOMLEFT", 0, -8)
+  detailRequester:SetPoint("RIGHT", -4, 0)
+  detailRequester:SetJustifyH("LEFT")
   detailRequester:SetText("")
 
   local detailItemHeader = detailContainer:CreateFontString(nil, "OVERLAY", "GameFontNormal")
   detailItemHeader:SetPoint("TOPLEFT", detailRequester, "BOTTOMLEFT", 0, -8)
+  detailItemHeader:SetPoint("RIGHT", -4, 0)
+  detailItemHeader:SetJustifyH("LEFT")
   detailItemHeader:SetText(T("Item Details"))
 
   local detailItemButton = CreateFrame("Button", nil, detailContainer)
@@ -1046,22 +1093,35 @@ function SND:CreateRequestsTab(parent)
 
   local detailInfo = detailContainer:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
   detailInfo:SetPoint("TOPLEFT", detailItemButton, "BOTTOMLEFT", 0, -6)
+  detailInfo:SetPoint("RIGHT", -4, 0)
   detailInfo:SetJustifyH("LEFT")
   detailInfo:Hide()
 
   local notesTitle = detailContainer:CreateFontString(nil, "OVERLAY", "GameFontNormal")
   notesTitle:SetPoint("TOPLEFT", detailInfo, "BOTTOMLEFT", 0, -8)
+  notesTitle:SetPoint("RIGHT", -4, 0)
+  notesTitle:SetJustifyH("LEFT")
   notesTitle:SetText("Notes")
 
   local notesBox = CreateFrame("EditBox", nil, detailContainer, "InputBoxTemplate")
   notesBox:SetPoint("TOPLEFT", notesTitle, "BOTTOMLEFT", 0, -4)
   notesBox:SetPoint("RIGHT", detailContainer, "RIGHT", -8, 0)
+  notesBox:SetWidth(120)
   notesBox:SetHeight(54)
   notesBox:SetMultiLine(true)
   notesBox:SetAutoFocus(false)
 
+  --save notes button
+  local saveNotesButton = CreateFrame("Button", nil, detailContainer, "UIPanelButtonTemplate")
+  saveNotesButton:SetPoint("TOPLEFT", notesBox, "BOTTOMLEFT",0, -6)
+  saveNotesButton:SetSize(110, 24)
+  saveNotesButton:SetText("Save Notes")
+  saveNotesButton:SetScript("OnClick", function()
+    SND:SaveInlineNotes(frame)
+  end)
+
   local statusLine = detailContainer:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-  statusLine:SetPoint("TOPLEFT", notesBox, "BOTTOMLEFT", 0, -8)
+  statusLine:SetPoint("TOPLEFT", saveNotesButton, "BOTTOMLEFT", 0, -8)
   statusLine:SetText("Status: -")
 
   local workflowStatus = detailContainer:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -1111,70 +1171,69 @@ function SND:CreateRequestsTab(parent)
   actionBarTop:SetPoint("RIGHT", detailContainer, "RIGHT", -8, 0)
   actionBarTop:SetHeight(26)
 
-  materialsScroll:SetPoint("BOTTOMRIGHT", actionBarTop, "TOPRIGHT", -18, 10)
+  materialsScroll:SetPoint("BOTTOMRIGHT", actionBarTop, "TOPRIGHT", 0, 0)
 
+  -- claim button
   local claimButton = CreateFrame("Button", nil, actionBarTop, "UIPanelButtonTemplate")
-  claimButton:SetPoint("LEFT", 0, 0)
-  claimButton:SetSize(110, 24)
-  claimButton:SetText("Claim")
+  claimButton:SetPoint("BOTTOMLEFT", 0, 0)
+  claimButton:SetSize(80, 24)
+  claimButton:SetText("Claim ->")
   claimButton:SetScript("OnClick", function()
     SND:ClaimSelectedRequest(frame)
   end)
 
+  -- unclaim button
   local unclaimButton = CreateFrame("Button", nil, actionBarTop, "UIPanelButtonTemplate")
-  unclaimButton:SetPoint("LEFT", claimButton, "RIGHT", 6, 0)
-  unclaimButton:SetSize(110, 24)
+  unclaimButton:SetPoint("TOPLEFT", claimButton, "BOTTOMLEFT",0, -6)
+  unclaimButton:SetSize(80, 24)
   unclaimButton:SetText("Unclaim")
   unclaimButton:SetScript("OnClick", function()
     SND:UnclaimSelectedRequest(frame)
   end)
 
+  -- crafted button
   local craftedButton = CreateFrame("Button", nil, actionBarBottom, "UIPanelButtonTemplate")
-  craftedButton:SetPoint("LEFT", 0, 0)
-  craftedButton:SetSize(110, 24)
-  craftedButton:SetText("Fulfill")
+  craftedButton:SetPoint("TOPLEFT", claimButton, "TOPRIGHT", 0, 0)
+  craftedButton:SetSize(80, 24)
+  craftedButton:SetText("Crafted ->")
   craftedButton:SetScript("OnClick", function()
     SND:MarkSelectedRequestCrafted(frame)
   end)
 
+  -- delivered button
   local deliveredButton = CreateFrame("Button", nil, actionBarBottom, "UIPanelButtonTemplate")
-  deliveredButton:SetPoint("LEFT", craftedButton, "RIGHT", 6, 0)
-  deliveredButton:SetSize(110, 24)
-  deliveredButton:SetText("Deliver")
+  deliveredButton:SetPoint("TOPLEFT", craftedButton, "TOPRIGHT", 0, 0)
+  deliveredButton:SetSize(80, 24)
+  deliveredButton:SetText("Delivered")
   deliveredButton:SetScript("OnClick", function()
     SND:MarkSelectedRequestDelivered(frame)
   end)
 
-  local editButton = CreateFrame("Button", nil, actionBarMeta, "UIPanelButtonTemplate")
-  editButton:SetPoint("LEFT", 0, 0)
-  editButton:SetSize(70, 24)
-  editButton:SetText("Edit")
-  editButton:SetScript("OnClick", function()
-    SND:EditSelectedRequestNotes(frame)
-  end)
+  -- -- edit button
+  -- local editButton = CreateFrame("Button", nil, actionBarMeta, "UIPanelButtonTemplate")
+  -- editButton:SetPoint("TOPLEFT", unclaimButton, "BOTTOMLEFT",0, -6)
+  -- editButton:SetSize(70, 24)
+  -- editButton:SetText("Edit")
+  -- editButton:SetScript("OnClick", function()
+  --   SND:EditSelectedRequestNotes(frame)
+  -- end)
 
+  --cancel button
   local cancelButton = CreateFrame("Button", nil, actionBarMeta, "UIPanelButtonTemplate")
-  cancelButton:SetPoint("LEFT", editButton, "RIGHT", 6, 0)
-  cancelButton:SetSize(82, 24)
+  cancelButton:SetPoint("TOPLEFT", unclaimButton, "BOTTOMLEFT",0, -6)
+  cancelButton:SetSize(70, 24)
   cancelButton:SetText("Decline")
   cancelButton:SetScript("OnClick", function()
     SND:CancelSelectedRequest(frame)
   end)
 
+  -- delete button
   local deleteButton = CreateFrame("Button", nil, actionBarMeta, "UIPanelButtonTemplate")
-  deleteButton:SetPoint("LEFT", cancelButton, "RIGHT", 6, 0)
-  deleteButton:SetSize(84, 24)
-  deleteButton:SetText("Remove")
+  deleteButton:SetPoint("TOPLEFT", cancelButton, "TOPRIGHT", 0, 0)
+  deleteButton:SetSize(70, 24)
+  deleteButton:SetText("Cancel")
   deleteButton:SetScript("OnClick", function()
     SND:DeleteSelectedRequest(frame)
-  end)
-
-  local saveNotesButton = CreateFrame("Button", nil, actionBarMetaBottom, "UIPanelButtonTemplate")
-  saveNotesButton:SetPoint("LEFT", 0, 0)
-  saveNotesButton:SetSize(110, 24)
-  saveNotesButton:SetText("Save")
-  saveNotesButton:SetScript("OnClick", function()
-    SND:SaveInlineNotes(frame)
   end)
 
   local listButtons = {}
@@ -1217,7 +1276,7 @@ function SND:CreateRequestsTab(parent)
 
     local statusText = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     statusText:SetPoint("LEFT", row, "LEFT", statusColumnX, 0)
-    statusText:SetWidth(74)
+    statusText:SetWidth(80)
     statusText:SetJustifyH("LEFT")
 
     local quickClaimButton = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
@@ -1327,7 +1386,7 @@ function SND:CreateRequestsTab(parent)
       UIDropDownMenu_AddButton(info, level)
     end
   end)
-  UIDropDownMenu_SetWidth(professionDrop, 130)
+  UIDropDownMenu_SetWidth(professionDrop, 110)
   UIDropDownMenu_SetText(professionDrop, frame.professionFilter)
 
   UIDropDownMenu_Initialize(statusDrop, function(dropdown, level)
@@ -1344,7 +1403,7 @@ function SND:CreateRequestsTab(parent)
       UIDropDownMenu_AddButton(info, level)
     end
   end)
-  UIDropDownMenu_SetWidth(statusDrop, 120)
+  UIDropDownMenu_SetWidth(statusDrop, 110)
   UIDropDownMenu_SetText(statusDrop, frame.statusFilter)
 
   return frame
@@ -1527,11 +1586,13 @@ function SND:CreateMeTab(parent)
   local matsListHeader = rightColumn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
   matsListHeader:SetPoint("TOPLEFT", matsSummary, "BOTTOMLEFT", 0, -12)
   matsListHeader:SetText("Shared mats")
+  matsListHeader:Hide()
 
   local matsSearchBox = CreateFrame("EditBox", nil, rightColumn, "InputBoxTemplate")
   matsSearchBox:SetSize(200, 22)
   matsSearchBox:SetPoint("TOPLEFT", matsListHeader, "BOTTOMLEFT", 0, -6)
   matsSearchBox:SetAutoFocus(false)
+  matsSearchBox:Hide()
   matsSearchBox:SetScript("OnEnterPressed", function(edit)
     edit:ClearFocus()
     SND:RefreshSharedMatsList(frame)
@@ -1550,6 +1611,7 @@ function SND:CreateMeTab(parent)
   local listContainer = CreateFrame("Frame", nil, rightColumn, "BackdropTemplate")
   listContainer:SetPoint("TOPLEFT", matsSearchBox, "BOTTOMLEFT", 0, -6)
   listContainer:SetSize(300, 220)
+  listContainer:Hide()
   listContainer:SetBackdrop({
     bgFile = "Interface/Tooltips/UI-Tooltip-Background",
     edgeFile = "Interface/Tooltips/UI-Tooltip-Border",

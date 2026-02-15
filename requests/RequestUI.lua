@@ -514,6 +514,8 @@ function SND:SaveInlineNotes(requestsFrame)
   request.updatedBy = self:GetPlayerKey(UnitName("player"))
   self:SendRequestUpdate(requestId, request)
   self:RefreshRequestList(requestsFrame)
+  -- Immediately refresh detail pane to show saved notes
+  self:SelectRequest(requestsFrame, requestId)
 end
 
 -- ============================================================================
