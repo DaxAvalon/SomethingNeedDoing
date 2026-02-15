@@ -483,7 +483,7 @@ function SND:CreateDirectoryTab(parent)
   detailContainer:SetPoint("TOPLEFT", listContainer, "TOPRIGHT", columnGap, 0)
   detailContainer:SetPoint("BOTTOMLEFT", listContainer, "BOTTOMRIGHT", columnGap, 0)
   -- Use relative positioning: ~22% of default width (290px at 1280px default)
-  detailContainer:SetPoint("RIGHT", frame, "LEFT", 590, 0)
+  detailContainer:SetPoint("RIGHT", frame, "LEFT", 700, 0)
   detailContainer:SetBackdrop({
     bgFile = "Interface/Tooltips/UI-Tooltip-Background",
     edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
@@ -548,8 +548,8 @@ function SND:CreateDirectoryTab(parent)
   local ColumnActionsX = columnMatsX + matsColumnWidth + columnGap
   local actionRightPadding = 6
   local actionButtonGap = 4
-  local whisperButtonWidth = 34
-  local requestButtonWidth = 52
+  local whisperButtonWidth = 64
+  local requestButtonWidth = 64
   -- Scroll child width will be set dynamically based on parent
 
   local crafterHeaderName = detailContainer:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -560,9 +560,9 @@ function SND:CreateDirectoryTab(parent)
   crafterHeaderStatus:SetPoint("TOPLEFT", craftersTitle, "BOTTOMLEFT", columnStatusX, -6)
   crafterHeaderStatus:SetText(T("Status"))
 
-  local crafterHeaderMats = detailContainer:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-  crafterHeaderMats:SetPoint("TOPLEFT", craftersTitle, "BOTTOMLEFT", columnMatsX, -6)
-  crafterHeaderMats:SetText(T("Mats"))
+  -- local crafterHeaderMats = detailContainer:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  -- crafterHeaderMats:SetPoint("TOPLEFT", craftersTitle, "BOTTOMLEFT", columnMatsX, -6)
+  -- crafterHeaderMats:SetText(T("Mats"))
 
   local crafterHeaderActions = detailContainer:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
   crafterHeaderActions:SetPoint("TOPLEFT", craftersTitle, "BOTTOMLEFT", ColumnActionsX, -6)
@@ -602,7 +602,7 @@ function SND:CreateDirectoryTab(parent)
 
     local requestButton = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
     requestButton:SetPoint("LEFT", row, "LEFT", ColumnActionsX, 0)
-    requestButton:SetSize(requestButtonWidth, 26)
+    requestButton:SetSize(requestButtonWidth, 30)
     requestButton:SetText(T("Request"))
     requestButton:SetScript("OnClick", function()
       if row.recipeSpellID then
@@ -617,21 +617,21 @@ function SND:CreateDirectoryTab(parent)
       end
     end)
 
-    --local whisperButton = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
-    --whisperButton:SetPoint("RIGHT", requestButton, "LEFT", -actionButtonGap, 0)
-    --whisperButton:SetSize(whisperButtonWidth, 20)
-    --whisperButton:SetText(T("Whisper"))
-    --whisperButton:SetScript("OnClick", function()
-      --if row.crafterName then
-        --SND:WhisperPlayer(row.crafterName)
-      --end
-    --end)
+    local whisperButton = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+    whisperButton:SetPoint("LEFT", requestButton, "RIGHT", 0, 0)
+    whisperButton:SetSize(whisperButtonWidth, 30)
+    whisperButton:SetText(T("Whisper"))
+    whisperButton:SetScript("OnClick", function()
+      if row.crafterName then
+        SND:WhisperPlayer(row.crafterName, row.itemLink, row.itemText)
+      end
+    end)
 
     row.nameText = nameText
     row.statusText = statusText
-    row.matsText = matsText
+    --row.matsText = matsText
     row.requestButton = requestButton
-    --row.whisperButton = whisperButton
+    row.whisperButton = whisperButton
     row:Hide()
     crafterRows[i] = row
   end

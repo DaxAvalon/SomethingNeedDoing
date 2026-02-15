@@ -111,12 +111,23 @@ end
 -- Utility Functions
 -- ============================================================================
 
-function SND:WhisperPlayer(playerName)
+function SND:WhisperPlayer(playerName, itemLink, itemText)
   if not playerName then
     return
   end
-  if ChatFrame_SendTell then
-    ChatFrame_SendTell(playerName)
+
+  -- If item context is provided, pre-fill a message
+  if itemLink or itemText then
+    local itemDisplay = itemLink or itemText or "an item"
+    local message = string.format("/w %s Hi! I'd like to request %s. Can you craft this?", playerName, itemDisplay)
+    if ChatFrame_OpenChat then
+      ChatFrame_OpenChat(message)
+    end
+  else
+    -- Just open empty whisper window
+    if ChatFrame_SendTell then
+      ChatFrame_SendTell(playerName)
+    end
   end
 end
 
@@ -135,7 +146,10 @@ function SND:WhisperCrafter(recipeSpellID)
   local crafters = self:GetCraftersForRecipe(recipeSpellID, filters)
   local target = crafters[1]
   if target then
-    self:WhisperPlayer(target.name)
+    -- Get the item link for context
+    local itemLink = self:GetRecipeOutputItemLink(recipeSpellID)
+    local itemText = self:GetRecipeOutputItemName(recipeSpellID)
+    self:WhisperPlayer(target.name, itemLink, itemText)
   end
 end
 
