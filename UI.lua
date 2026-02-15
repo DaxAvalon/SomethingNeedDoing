@@ -483,7 +483,7 @@ function SND:CreateDirectoryTab(parent)
   detailContainer:SetPoint("TOPLEFT", listContainer, "TOPRIGHT", columnGap, 0)
   detailContainer:SetPoint("BOTTOMLEFT", listContainer, "BOTTOMRIGHT", columnGap, 0)
   -- Use relative positioning: ~22% of default width (290px at 1280px default)
-  detailContainer:SetPoint("RIGHT", frame, "LEFT", 700, 0)
+  detailContainer:SetPoint("RIGHT", frame, "LEFT", 660, 0)
   detailContainer:SetBackdrop({
     bgFile = "Interface/Tooltips/UI-Tooltip-Background",
     edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
@@ -623,7 +623,7 @@ function SND:CreateDirectoryTab(parent)
     whisperButton:SetText(T("Whisper"))
     whisperButton:SetScript("OnClick", function()
       if row.crafterName then
-        SND:WhisperPlayer(row.crafterName, row.itemLink, row.itemText)
+        SND:WhisperPlayer(row.crafterName, row.itemLink, row.itemText, row.recipeSpellID)
       end
     end)
 

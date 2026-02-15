@@ -111,15 +111,31 @@ end
 -- Utility Functions
 -- ============================================================================
 
-function SND:WhisperPlayer(playerName, itemLink, itemText)
+function SND:WhisperPlayer(playerName, itemLink, itemText, recipeSpellID)
   if not playerName then
     return
   end
 
   -- If item context is provided, pre-fill a message
-  if itemLink or itemText then
+  if itemLink or itemText or recipeSpellID then
     local itemDisplay = itemLink or itemText or "an item"
-    local message = string.format("/w %s Hi! I'd like to request %s. Can you craft this?", playerName, itemDisplay)
+
+    -- Try to get the recipe/spell link
+    local recipeLink = nil
+    if recipeSpellID then
+      recipeLink = GetSpellLink(recipeSpellID)
+    end
+
+    -- Build message with item and optional recipe link
+    local message
+    if recipeLink then
+      message = string.format("/w %s Hi! I'd like to request %s (Recipe: %s). Can you craft this?",
+        playerName, itemDisplay, recipeLink)
+    else
+      message = string.format("/w %s Hi! I'd like to request %s. Can you craft this?",
+        playerName, itemDisplay)
+    end
+
     if ChatFrame_OpenChat then
       ChatFrame_OpenChat(message)
     end
@@ -146,10 +162,10 @@ function SND:WhisperCrafter(recipeSpellID)
   local crafters = self:GetCraftersForRecipe(recipeSpellID, filters)
   local target = crafters[1]
   if target then
-    -- Get the item link for context
+    -- Get the item link and recipe link for context
     local itemLink = self:GetRecipeOutputItemLink(recipeSpellID)
     local itemText = self:GetRecipeOutputItemName(recipeSpellID)
-    self:WhisperPlayer(target.name, itemLink, itemText)
+    self:WhisperPlayer(target.name, itemLink, itemText, recipeSpellID)
   end
 end
 
