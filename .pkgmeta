@@ -1,0 +1,26 @@
+package-as: SomethingNeedDoing
+
+enable-nolib-creation: yes
+
+externals:
+  libs/Ace3:
+    url: https://repos.wowace.com/wow/ace3/trunk
+    tag: latest
+  libs/LibDBIcon-1.0:
+    url: https://repos.wowace.com/wow/libdbicon-1-0/trunk/LibDBIcon-1.0
+    tag: latest
+  libs/LibDeflate:
+    url: https://github.com/SafeteeWoW/LibDeflate.git
+    tag: latest
+  libs/LibSharedMedia-3.0:
+    url: https://repos.wowace.com/wow/libsharedmedia-3-0/trunk/LibSharedMedia-3.0
+    tag: latest
+
+ignore:
+  - dist
+  - package.sh
+  - Makefile
+  - .luacheckrc
+  - .github
+  - README.md
+  - .editorconfig
