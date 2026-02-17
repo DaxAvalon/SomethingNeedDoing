@@ -5,12 +5,16 @@ local AceComm = LibStub("AceComm-3.0")
 local AceSerializer = LibStub("AceSerializer-3.0")
 local LibDeflate = LibStub("LibDeflate")
 
+-- Authority model: peer-to-peer eventual consistency.
+-- Each player is authoritative for their own data (professions, materials).
+-- Shared state (requests, recipe index) uses LWW with version vectors.
+-- The WoW-provided `sender` field (unforgeable) is used to attribute data.
 SND.comms = {
   prefix = "SND",
   version = 2,
   rate = { window = 5, max = 25 },
-  chunkTimeout = 10,
-  fullSyncInterval = 60,  -- Reduced from 300 to 60 seconds for faster updates
+  chunkTimeout = 30,
+  fullSyncInterval = 15,  -- Full state rebroadcast every 15s; ChatThrottleLib handles rate safety
 }
 
 local function countTableEntries(tbl)
@@ -39,6 +43,13 @@ local function lwwScore(entry, fallbackId)
 end
 
 local function incomingWins(incoming, existing, fallbackId)
+  -- Prefer higher version first (monotonically incrementing per entity)
+  local inVer = tonumber(incoming and incoming.version) or 0
+  local exVer = tonumber(existing and existing.version) or 0
+  if inVer ~= exVer then
+    return inVer > exVer
+  end
+  -- Fall back to timestamp-based LWW
   local inTs, inBy, inId = lwwScore(incoming, fallbackId)
   local exTs, exBy, exId = lwwScore(existing, fallbackId)
   if inTs ~= exTs then
@@ -231,6 +242,16 @@ function SND:HandleAddonMessage(payload, channel, sender)
     self:HandleRequestMessage(payload, "REQ_FULL", sender)
   elseif messageType == "REQ_NOTIFY" then
     self:HandleDeliveryNotification(payload, sender)
+  elseif messageType == "STAT_LOG" then
+    if type(self.HandleStatLogMessage) == "function" then
+      self:HandleStatLogMessage(payload, sender)
+    end
+  elseif messageType == "STAT_FULL" then
+    if type(self.HandleStatFullMessage) == "function" then
+      self:HandleStatFullMessage(payload, sender)
+    end
+  elseif messageType == "PROF_DATA" then
+    self:HandleProfessionData(payload, sender)
   end
 end
 
@@ -259,9 +280,13 @@ function SND:BroadcastFullState(reason)
   ))
 
   self:SendRecipeIndex(true)
+  self:SendProfessionData()
   self:SendMatsSnapshot(self:SnapshotSharedMats() or {}, true)
   if type(self.SendRequestFullState) == "function" then
     self:SendRequestFullState()
+  end
+  if type(self.SendCraftLogFullState) == "function" then
+    self:SendCraftLogFullState()
   end
   self.comms.lastFullSyncAt = self:Now()
   debugComms(self, string.format(
@@ -272,13 +297,100 @@ function SND:BroadcastFullState(reason)
 end
 
 function SND:SendHello()
-  local payload = string.format("HELLO|%d", self.comms.version)
+  local addonVer = self.addonVersion or "0.0.0"
+  local payload = string.format("HELLO|%d|%s", self.comms.version, addonVer)
   self:SendAddonMessage(payload)
 end
 
 function SND:SendProfSummary()
   local payload = string.format("PROF|%d", self.comms.version)
   self:SendAddonMessage(payload)
+end
+
+function SND:SendProfessionData()
+  -- Prune stale professions before broadcasting (e.g., dropped professions)
+  if type(self.PruneStaleLocalProfessions) == "function" then
+    self:PruneStaleLocalProfessions()
+  end
+
+  local playerKey = self:GetPlayerKey(UnitName("player"))
+  local playerEntry = playerKey and self.db.players[playerKey]
+  if not playerEntry or not playerEntry.professions then
+    return
+  end
+
+  -- Build a compact table: { [profSkillLineID] = { name, recipes = {id=true,...} }, ... }
+  local profData = {}
+  for profKey, prof in pairs(playerEntry.professions) do
+    if prof.recipes and next(prof.recipes) then
+      profData[profKey] = {
+        name = prof.name,
+        rank = prof.rank,
+        maxRank = prof.maxRank,
+        recipes = prof.recipes,
+      }
+    end
+  end
+
+  if not next(profData) then
+    return
+  end
+
+  local serialized = self.comms.serializer:Serialize(profData)
+  local compressed = self.comms.deflate:CompressDeflate(serialized)
+  local encoded = self.comms.deflate:EncodeForWoWAddonChannel(compressed)
+  debugComms(self, string.format("SendProfessionData: player=%s profs=%d encoded=%d", tostring(playerKey), countTableEntries(profData), #encoded))
+  self:SendAddonMessage(string.format("PROF_DATA|%s", encoded))
+end
+
+function SND:HandleProfessionData(payload, sender)
+  local encoded = string.match(payload, "^PROF_DATA|(.+)$")
+  if not encoded or encoded == "" then
+    return
+  end
+
+  local decoded = self.comms.deflate:DecodeForWoWAddonChannel(encoded)
+  if not decoded then
+    debugComms(self, "HandleProfessionData: decode failed")
+    return
+  end
+  local inflated = self.comms.deflate:DecompressDeflate(decoded)
+  if not inflated then
+    debugComms(self, "HandleProfessionData: decompress failed")
+    return
+  end
+  local ok, profData = self.comms.serializer:Deserialize(inflated)
+  if not ok or type(profData) ~= "table" then
+    debugComms(self, "HandleProfessionData: deserialize failed")
+    return
+  end
+
+  local senderKey = self:GetPlayerKey(strsplit("-", sender)) or sender
+  local senderEntry = self.db.players[senderKey] or {}
+  senderEntry.name = senderEntry.name or strsplit("-", sender)
+  senderEntry.online = true
+  senderEntry.lastSeen = self:Now()
+
+  -- Replace sender's professions with authoritative data from sender
+  senderEntry.professions = {}
+  for profKey, prof in pairs(profData) do
+    if type(prof) == "table" and prof.recipes then
+      local profName = prof.name or self:GetProfessionNameBySkillLineID(profKey)
+      senderEntry.professions[profKey] = {
+        name = profName,
+        rank = prof.rank,
+        maxRank = prof.maxRank,
+        recipes = prof.recipes,
+      }
+    end
+  end
+
+  self.db.players[senderKey] = senderEntry
+  debugComms(self, string.format(
+    "HandleProfessionData: sender=%s profs=%d",
+    tostring(senderKey),
+    countTableEntries(senderEntry.professions)
+  ))
 end
 
 function SND:SendAddonMessage(payload, priority)
@@ -295,6 +407,22 @@ end
 
 function SND:HandleHello(payload, sender)
   self:DebugOnlyLog("HELLO from " .. tostring(sender))
+
+  -- Parse addon version from HELLO payload: "HELLO|<commsVersion>|<addonVersion>"
+  local parts = { strsplit("|", payload) }
+  local remoteAddonVersion = parts[3]
+  if not remoteAddonVersion or remoteAddonVersion == "" then
+    return
+  end
+
+  local localVersion = self.addonVersion or "0.0.0"
+  if remoteAddonVersion > localVersion and not self._versionWarningShown then
+    self._versionWarningShown = true
+    self:Print(string.format(
+      "|cffff8000SND Update Available:|r A guild member is running v%s (you have v%s). Please update!",
+      remoteAddonVersion, localVersion
+    ))
+  end
 end
 
 function SND:HandleProf(payload, sender)
@@ -388,6 +516,10 @@ function SND:HandleRequestMessage(payload, kind, sender)
         local tombstone = self.db.requestTombstones[requestId]
         if incomingWins(incomingRequest, tombstone or existing, requestId) then
           self.db.requests[requestId] = incomingRequest
+          -- Record craft log for delivered requests during full sync
+          if incomingRequest.status == "DELIVERED" and type(self.RecordCraftLogEntry) == "function" then
+            self:RecordCraftLogEntry(requestId, incomingRequest)
+          end
         end
       end
     end
@@ -427,6 +559,11 @@ function SND:HandleRequestMessage(payload, kind, sender)
       self.db.requests[message.id] = message.data
       if kind == "REQ_NEW" and type(self.ShowIncomingRequestPopup) == "function" then
         self:ShowIncomingRequestPopup(message.id, message.data, sender)
+      end
+
+      -- Record craft log entry when a remote DELIVERED status comes in
+      if kind == "REQ_UPD" and message.data.status == "DELIVERED" and type(self.RecordCraftLogEntry) == "function" then
+        self:RecordCraftLogEntry(message.id, message.data)
       end
 
       -- Notify if this is a new request for a recipe the local player knows
@@ -473,7 +610,7 @@ function SND:HandleRequestMessage(payload, kind, sender)
           local request = self.db.requests[message.id]
           if request and self.db.config.showNotifications then
             local statusChangeMsg = string.format(
-              "|cffff8000Request Status Changed:|r %s → |cff00ff00%s|r",
+              "|cffff8000Request Status Changed:|r %s > |cff00ff00%s|r",
               self:GetRecipeOutputItemName(request.recipeSpellID) or "Request",
               message.data.status
             )
@@ -628,7 +765,7 @@ function SND:ChunkPayload(encoded, kind)
   kind = kind or "RCP"
   local maxChunk = 200
   local total = math.ceil(#encoded / maxChunk)
-  local msgId = tostring(math.random(1000, 9999)) .. tostring(self:Now())
+  local msgId = tostring(math.random(100000, 999999)) .. tostring(self:Now())
   local chunks = {}
   for i = 1, total do
     local startIndex = (i - 1) * maxChunk + 1
@@ -670,56 +807,38 @@ function SND:IngestRecipeIndexPayload(encoded, sender, kind)
   local ok, recipeIndex = self.comms.serializer:Deserialize(inflated)
   if ok and type(recipeIndex) == "table" then
     local mergedCount = 0
-    local newRecipesLearned = {}
     local now = self:Now()
     local senderKey = self:GetPlayerKey(strsplit("-", sender)) or sender
-    local senderName = strsplit("-", sender)
-
-    -- Ensure sender player entry exists
-    local senderEntry = self.db.players[senderKey] or {}
-    senderEntry.professions = senderEntry.professions or {}
 
     for recipeSpellID, entry in pairs(recipeIndex) do
-      local incoming = normalizeRecipeEntry(entry, recipeSpellID, now, senderKey)
-      local existing = self.db.recipeIndex[recipeSpellID]
-      if incoming and incomingWins(incoming, existing, recipeSpellID) then
-        self.db.recipeIndex[recipeSpellID] = incoming
-        mergedCount = mergedCount + 1
-
-        -- BUGFIX: Also populate sender's profession.recipes table
-        -- This ensures GetCraftersForRecipe can find remote players
-        if incoming.professionSkillLineID then
-          local profKey = incoming.professionSkillLineID
-          local profEntry = senderEntry.professions[profKey] or {}
-          profEntry.recipes = profEntry.recipes or {}
-
-          -- Track if this is a NEW recipe for this player
-          local isNewRecipe = not profEntry.recipes[recipeSpellID]
-          if isNewRecipe then
-            table.insert(newRecipesLearned, {
-              recipeSpellID = recipeSpellID,
-              recipeName = incoming.name or ("Recipe " .. tostring(recipeSpellID))
-            })
+      -- Only process numeric recipe IDs - skip string formats like "classic:185::80"
+      -- which cannot be resolved by the WoW API
+      if type(recipeSpellID) == "number" then
+        local incoming = normalizeRecipeEntry(entry, recipeSpellID, now, senderKey)
+        if incoming then
+          -- Merge into global recipeIndex if incoming wins
+          local existing = self.db.recipeIndex[recipeSpellID]
+          if incomingWins(incoming, existing, recipeSpellID) then
+            -- Preserve locally-enriched fields the sender may not have
+            if existing then
+              if not incoming.reagents and existing.reagents then
+                incoming.reagents = existing.reagents
+              end
+              if not incoming.outputItemID and existing.outputItemID then
+                incoming.outputItemID = existing.outputItemID
+              end
+              if not incoming.itemName and existing.itemName then
+                incoming.itemName = existing.itemName
+              end
+              if not incoming.itemIcon and existing.itemIcon then
+                incoming.itemIcon = existing.itemIcon
+              end
+            end
+            self.db.recipeIndex[recipeSpellID] = incoming
+            mergedCount = mergedCount + 1
           end
-
-          profEntry.recipes[recipeSpellID] = true
-          senderEntry.professions[profKey] = profEntry
         end
-      end
-    end
-
-    -- Save updated sender entry back to DB
-    self.db.players[senderKey] = senderEntry
-
-    -- Notify user about new recipes learned by other players
-    -- Only show if notifications enabled and not in combat
-    local showNotifications = self.db and self.db.config and self.db.config.showNotifications
-    if showNotifications and #newRecipesLearned > 0 and senderKey ~= self:GetPlayerKey(UnitName("player")) and not InCombatLockdown() then
-      for _, recipeData in ipairs(newRecipesLearned) do
-        local outputName = self:GetRecipeOutputItemName(recipeData.recipeSpellID)
-        local displayName = outputName or recipeData.recipeName
-        self:Print(string.format("|cff00ff00%s|r learned: |cffffd700%s|r", senderName or "Someone", displayName))
-      end
+      end  -- Close type(recipeSpellID) == "number" check
     end
 
     debugComms(self, string.format(
@@ -729,6 +848,26 @@ function SND:IngestRecipeIndexPayload(encoded, sender, kind)
       mergedCount,
       countTableEntries(self.db and self.db.recipeIndex)
     ))
+
+    -- Warm item cache for all merged recipes so names/icons/tooltips are available
+    if mergedCount > 0 and type(self.WarmItemCache) == "function" then
+      local itemsToWarm = {}
+      local seen = {}
+      for _, entry in pairs(self.db.recipeIndex) do
+        local itemID = entry and entry.outputItemID
+        if itemID and not seen[itemID] then
+          -- Only warm items not already cached
+          local name = GetItemInfo(itemID)
+          if not name then
+            table.insert(itemsToWarm, itemID)
+            seen[itemID] = true
+          end
+        end
+      end
+      if #itemsToWarm > 0 then
+        self:WarmItemCache(itemsToWarm)
+      end
+    end
 
     -- Refresh directory UI if recipes were merged (but not during combat to avoid taint)
     if mergedCount > 0 and not InCombatLockdown() and self.mainFrame and self.mainFrame.contentFrames then

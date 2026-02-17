@@ -175,6 +175,17 @@ function SND:GetRecipeOutputItemName(recipeSpellID)
   -- Get item ID
   local itemID = self:GetRecipeOutputItemID(recipeSpellID)
   if not itemID then
+    -- No output item (e.g. enchanting) — fall back to stored recipe name
+    -- or spell name from the WoW API
+    if entry and entry.name then
+      return entry.name
+    end
+    if type(recipeSpellID) == "number" then
+      local spellName = GetSpellInfo(recipeSpellID)
+      if spellName then
+        return spellName
+      end
+    end
     return nil
   end
 
@@ -350,6 +361,17 @@ function SND:GetRecipeOutputItemIcon(recipeSpellID)
   -- Get item ID
   local itemID = self:GetRecipeOutputItemID(recipeSpellID)
   if not itemID then
+    -- No output item (e.g. enchanting) — fall back to spell icon
+    if type(recipeSpellID) == "number" then
+      local _, _, spellIcon = GetSpellInfo(recipeSpellID)
+      if spellIcon then
+        -- Cache it so we don't call GetSpellInfo every frame
+        if entry then
+          entry.itemIcon = spellIcon
+        end
+        return spellIcon
+      end
+    end
     return nil
   end
 

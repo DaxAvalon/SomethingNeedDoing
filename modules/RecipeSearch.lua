@@ -162,6 +162,11 @@ function SND:SearchRecipes(query, filters)
         end
       end
 
+      -- Skip BoP output items the local player can't craft (untradeable)
+      if not shouldSkip and self:IsRecipeOutputBoP(recipeSpellID) and not self:CanPlayerCraftRecipe(recipeSpellID) then
+        shouldSkip = true
+      end
+
       if not shouldSkip then
         local crafters = self:GetCraftersForRecipe(recipeSpellID, filters)
         local count = #crafters
@@ -209,6 +214,11 @@ function SND:SearchRecipes(query, filters)
             break
           end
         end
+      end
+
+      -- Skip BoP output items the local player can't craft (untradeable)
+      if not shouldSkip and self:IsRecipeOutputBoP(recipeSpellID) and not self:CanPlayerCraftRecipe(recipeSpellID) then
+        shouldSkip = true
       end
 
       if not shouldSkip then
@@ -311,13 +321,15 @@ function SND:GetCraftersForRecipe(recipeSpellID, filters)
   local results = {}
   for playerName, player in pairs(self.db.players) do
     if player.professions then
-      for _, prof in pairs(player.professions) do
+      for profKey, prof in pairs(player.professions) do
         if prof.recipes and prof.recipes[recipeSpellID] then
+          local profName = prof.name or self:GetProfessionNameBySkillLineID(profKey)
+
           -- Check if player has shared materials for this recipe
           local hasSharedMats = player.sharedMats and self:HasSharedMatsForRecipe(player.sharedMats, recipeSpellID) or false
 
           -- Apply filters
-          local professionMatch = not filters or not filters.professionName or filters.professionName == "All" or filters.professionName == prof.name
+          local professionMatch = not filters or not filters.professionName or filters.professionName == "All" or filters.professionName == profName
           local onlineMatch = not filters or not filters.onlineOnly or player.online
           local sharedMatsMatch = not filters or not filters.sharedMatsOnly or hasSharedMats
 
@@ -325,7 +337,7 @@ function SND:GetCraftersForRecipe(recipeSpellID, filters)
             table.insert(results, {
               name = playerName,
               online = player.online,
-              profession = prof.name,
+              profession = profName,
               rank = prof.rank,
               maxRank = prof.maxRank,
               hasSharedMats = hasSharedMats,
@@ -429,10 +441,11 @@ function SND:GetProfessionFilterOptions()
   -- Add professions from active guild members (in case of non-standard professions)
   for _, player in pairs(self.db.players) do
     if player.professions then
-      for _, prof in pairs(player.professions) do
-        if prof.name and not gathering[prof.name] and not seen[prof.name] then
-          table.insert(options, prof.name)
-          seen[prof.name] = true
+      for profKey, prof in pairs(player.professions) do
+        local profName = prof.name or self:GetProfessionNameBySkillLineID(profKey)
+        if profName and not gathering[profName] and not seen[profName] then
+          table.insert(options, profName)
+          seen[profName] = true
         end
       end
     end

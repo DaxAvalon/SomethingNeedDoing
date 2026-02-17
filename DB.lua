@@ -25,7 +25,24 @@ local DEFAULT_DB = {
       hide = false,
     },
     debugMode = false,
+    priceSource = "auto",
     shareMatsExclusions = {},
+    filters = {
+      directory = {
+        selectedProfession = "All",
+        onlineOnly = false,
+        sharedMatsOnly = false,
+        hideOwnRecipes = false,
+        sortBy = "name_az",
+      },
+      requests = {
+        professionFilter = "All",
+        statusFilter = "ALL",
+        onlyMine = false,
+        onlyClaimable = false,
+        hasMaterialsOnly = false,
+      },
+    },
   },
 }
 
@@ -87,6 +104,7 @@ function SND:InitDB()
   self:EnsureDBDefaults()
   self:EnsureGuildScope()
   self:MigrateRecipeIndexToPlayerProfessions()
+  self:CleanInvalidRecipes()
 end
 
 function SND:ResetDB()
@@ -132,38 +150,36 @@ function SND:ResetDB()
 end
 
 function SND:MigrateRecipeIndexToPlayerProfessions()
-  -- One-time migration to fix recipes from remote players not appearing in directory
-  -- Rebuilds player.professions[x].recipes from recipeIndex entries
-  if self.db.config.recipeIndexMigrated then
-    return
-  end
-
-  local migratedCount = 0
-  for recipeSpellID, entry in pairs(self.db.recipeIndex or {}) do
-    if entry.updatedBy and entry.professionSkillLineID then
-      local playerKey = entry.updatedBy
-      local profKey = entry.professionSkillLineID
-
-      local playerEntry = self.db.players[playerKey]
-      if playerEntry then
-        playerEntry.professions = playerEntry.professions or {}
-        local profEntry = playerEntry.professions[profKey] or {}
-        profEntry.recipes = profEntry.recipes or {}
-
-        if not profEntry.recipes[recipeSpellID] then
-          profEntry.recipes[recipeSpellID] = true
-          migratedCount = migratedCount + 1
-        end
-
-        playerEntry.professions[profKey] = profEntry
-      end
+  -- v2: Clear incorrect profession data for remote players.
+  -- Remote player professions are populated exclusively from PROF_DATA messages
+  -- (authoritative per-player data). Local player professions are set by Scanner.lua.
+  local localPlayerKey = self:GetPlayerKey(UnitName("player"))
+  local cleared = 0
+  for playerKey, playerEntry in pairs(self.db.players or {}) do
+    if playerKey ~= localPlayerKey and playerEntry.professions then
+      playerEntry.professions = {}
+      cleared = cleared + 1
     end
   end
+  if cleared > 0 then
+    self:DebugLog(string.format("Migration v2: Cleared profession data for %d remote players (will be repopulated from PROF_DATA)", cleared), true)
+  end
 
-  self.db.config.recipeIndexMigrated = true
-
-  if migratedCount > 0 then
-    self:DebugLog(string.format("Migration: Synced %d recipes from recipeIndex to player professions", migratedCount), true)
+  -- Audit local player: remove profession entries with invalid keys or empty recipes
+  local localEntry = localPlayerKey and self.db.players[localPlayerKey]
+  if localEntry and type(localEntry.professions) == "table" then
+    local pruned = 0
+    for profKey, profEntry in pairs(localEntry.professions) do
+      local invalid = type(profKey) ~= "number"
+      local empty = type(profEntry) ~= "table" or type(profEntry.recipes) ~= "table" or next(profEntry.recipes) == nil
+      if invalid or empty then
+        localEntry.professions[profKey] = nil
+        pruned = pruned + 1
+      end
+    end
+    if pruned > 0 then
+      self:DebugLog(string.format("Migration v2: Pruned %d invalid/empty profession entries from local player", pruned), true)
+    end
   end
 end
 
@@ -238,8 +254,24 @@ function SND:EnsureDBDefaults()
     db.config.shareMatsExclusions = {}
   end
 
+  if db.config.priceSource == nil then
+    db.config.priceSource = "auto"
+  end
+
   if type(db.config.guildRolePolicy) ~= "table" then
     db.config.guildRolePolicy = deepCopy(DEFAULT_DB.config.guildRolePolicy)
+  end
+
+  -- Ensure filter settings exist
+  if type(db.config.filters) ~= "table" then
+    db.config.filters = deepCopy(DEFAULT_DB.config.filters)
+  else
+    if type(db.config.filters.directory) ~= "table" then
+      db.config.filters.directory = deepCopy(DEFAULT_DB.config.filters.directory)
+    end
+    if type(db.config.filters.requests) ~= "table" then
+      db.config.filters.requests = deepCopy(DEFAULT_DB.config.filters.requests)
+    end
   end
 
   local rolePolicy = db.config.guildRolePolicy
@@ -309,6 +341,7 @@ function SND:EnsureGuildScope(forceGuildKey)
       recipeIndex = {},
       requests = {},
       requestTombstones = {},
+      craftLog = {},
     }
     db.guildData[guildKey] = bucket
   end
@@ -317,6 +350,7 @@ function SND:EnsureGuildScope(forceGuildKey)
   bucket.recipeIndex = type(bucket.recipeIndex) == "table" and bucket.recipeIndex or {}
   bucket.requests = type(bucket.requests) == "table" and bucket.requests or {}
   bucket.requestTombstones = type(bucket.requestTombstones) == "table" and bucket.requestTombstones or {}
+  bucket.craftLog = type(bucket.craftLog) == "table" and bucket.craftLog or {}
 
   -- Keep legacy top-level fields as aliases to the active guild bucket so the
   -- rest of the codebase can continue using self.db.players/requests/etc.
@@ -324,6 +358,7 @@ function SND:EnsureGuildScope(forceGuildKey)
   db.recipeIndex = bucket.recipeIndex
   db.requests = bucket.requests
   db.requestTombstones = bucket.requestTombstones
+  db.craftLog = bucket.craftLog
 end
 
 function SND:SetGuildKey(guildName)
@@ -361,4 +396,43 @@ function SND:PurgeStaleData()
       self.db.requestTombstones[requestId] = nil
     end
   end
+
+  -- Purge old craft log entries (6 months)
+  if type(self.PurgeStaleCraftLog) == "function" then
+    self:PurgeStaleCraftLog()
+  end
+end
+
+function SND:CleanInvalidRecipes()
+  -- Remove recipe entries with non-numeric IDs (e.g., "classic:185::80")
+  -- These cannot be resolved by the WoW API and should not be in the database
+  local removed = 0
+
+  for recipeSpellID, _ in pairs(self.db.recipeIndex) do
+    if type(recipeSpellID) ~= "number" then
+      self.db.recipeIndex[recipeSpellID] = nil
+      removed = removed + 1
+    end
+  end
+
+  -- Also clean up player profession recipe lists
+  for _, player in pairs(self.db.players) do
+    if type(player.professions) == "table" then
+      for _, profEntry in pairs(player.professions) do
+        if type(profEntry.recipes) == "table" then
+          for recipeSpellID, _ in pairs(profEntry.recipes) do
+            if type(recipeSpellID) ~= "number" then
+              profEntry.recipes[recipeSpellID] = nil
+            end
+          end
+        end
+      end
+    end
+  end
+
+  if removed > 0 then
+    self:DebugLog(string.format("CleanInvalidRecipes: Removed %d invalid recipe entries", removed), true)
+  end
+
+  return removed
 end

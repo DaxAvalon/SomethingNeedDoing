@@ -1,9 +1,10 @@
-## Interface: 20504
+## Interface: 20504, 20505
 ## Title: Something Need Doing
 ## Notes: Guild-wide profession directory and craft request board.
-## Author: SND
-## Version: 0.1.0
+## Author: Ariailis-Dreamscythe <All Gear No Fear>
+## Version: 0.4.0
 ## SavedVariables: SomethingNeedDoingDB
+## OptionalDeps: Auctionator, TradeSkillMaster
 
 libs/Ace3/LibStub/LibStub.lua
 libs/Ace3/CallbackHandler-1.0/CallbackHandler-1.0.lua
@@ -33,10 +34,15 @@ modules/ItemCache.lua
 modules/RecipeData.lua
 modules/RecipeSearch.lua
 modules/DirectoryUI.lua
+modules/AuctionPrice.lua
 
 # Request System
 requests/RequestCore.lua
 requests/RequestUI.lua
+
+# Statistics
+stats/StatsCore.lua
+stats/StatsUI.lua
 
 Options.lua
 Roster.lua

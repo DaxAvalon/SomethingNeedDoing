@@ -203,6 +203,7 @@ function SND:CreateMainWindow()
   frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
   frame:SetScript("OnShow", function(shownFrame)
     SND:BringAddonFrameToFront(shownFrame, SND_MAIN_STRATA)
+    SND:RefreshAllTabs()
   end)
   frame:SetScript("OnMouseDown", function(mouseFrame)
     SND:BringAddonFrameToFront(mouseFrame, SND_MAIN_STRATA)
@@ -252,7 +253,7 @@ function SND:CreateMainWindow()
   end)
 
   local tabs = {}
-  local tabNames = { T("Directory"), T("Requests"), T("Options"), }
+  local tabNames = { T("Directory"), T("Requests"), T("Stats"), T("Options"), }
   for i, label in ipairs(tabNames) do
     local tab = CreateFrame("Button", "SNDMainFrameTab" .. i, frame, "OptionsFrameTabButtonTemplate")
     tab:SetID(i)
@@ -276,10 +277,12 @@ function SND:CreateMainWindow()
   frame.contentFrames = {
     self:CreateDirectoryTab(frame),
     self:CreateRequestsTab(frame),
+    self:CreateStatsTab(frame),
     self:CreateMeTab(frame),
   }
   self:BringAddonFrameToFront(frame, SND_MAIN_STRATA)
   self.mainFrame = frame
+  tinsert(UISpecialFrames, "SNDMainFrame")
   self:SelectTab(1)
 end
 
@@ -315,7 +318,12 @@ function SND:SelectTab(index)
       SND:RefreshRequestList(requestsFrame)
     end
   elseif index == 3 then
-    local meFrame = self.meTabFrame or self.mainFrame.contentFrames[3]
+    local statsFrame = self.mainFrame.contentFrames[3]
+    if statsFrame and type(self.RefreshStatsTab) == "function" then
+      self:RefreshStatsTab(statsFrame)
+    end
+  elseif index == 4 then
+    local meFrame = self.meTabFrame or self.mainFrame.contentFrames[4]
     if meFrame then
       self.meTabFrame = meFrame
       if self.TraceScanLog then
@@ -390,6 +398,14 @@ function SND:CreateDirectoryTab(parent)
   searchLabel:SetPoint("BOTTOMLEFT", searchBox, "TOPLEFT", 0, 0)
   searchLabel:SetText(T("Search"))
 
+  -- Load saved filter settings from database (must happen before checkbox creation)
+  local savedDirFilters = SND.db.config.filters.directory
+  frame.selectedProfession = savedDirFilters.selectedProfession or "All"
+  frame.onlineOnly = savedDirFilters.onlineOnly or false
+  frame.sharedMatsOnly = savedDirFilters.sharedMatsOnly or false
+  frame.hideOwnRecipes = savedDirFilters.hideOwnRecipes or false
+  frame.sortBy = savedDirFilters.sortBy or "name_az"
+
   -- Profession Filter
   local professionLabel = filterBar:CreateFontString(nil, "OVERLAY", "GameFontNormal")
   professionLabel:SetPoint("TOPLEFT", searchLabel, "TOPRIGHT", 160, 0)
@@ -401,24 +417,30 @@ function SND:CreateDirectoryTab(parent)
   -- Online Only checkbox
   local onlineBox, onlineOnly = CreateBoundedCheckbox(filterBar, T("Online Only"))
   onlineBox:SetPoint("LEFT", professionDrop, "RIGHT", 0, 12)
+  onlineOnly:SetChecked(frame.onlineOnly)
   onlineOnly:SetScript("OnClick", function(btn)
     frame.onlineOnly = btn:GetChecked() and true or false
+    SND.db.config.filters.directory.onlineOnly = frame.onlineOnly
     SND:UpdateDirectoryResults(searchBox:GetText())
   end)
 
   -- Has Materials checkbox
   local matsBox, matsOnly = CreateBoundedCheckbox(filterBar, T("Has Materials"))
   matsBox:SetPoint("LEFT", onlineBox, "LEFT", 0, -28)
+  matsOnly:SetChecked(frame.sharedMatsOnly)
   matsOnly:SetScript("OnClick", function(btn)
     frame.sharedMatsOnly = btn:GetChecked() and true or false
+    SND.db.config.filters.directory.sharedMatsOnly = frame.sharedMatsOnly
     SND:UpdateDirectoryResults(searchBox:GetText())
   end)
 
   -- Hide My Recipies checkbox
   local hideOwnBox, hideOwnCheckbox = CreateBoundedCheckbox(filterBar, T("Hide My Recipes"))
   hideOwnBox:SetPoint("LEFT", matsBox, "LEFT", 0, -28)
+  hideOwnCheckbox:SetChecked(frame.hideOwnRecipes)
   hideOwnCheckbox:SetScript("OnClick", function(btn)
     frame.hideOwnRecipes = btn:GetChecked() and true or false
+    SND.db.config.filters.directory.hideOwnRecipes = frame.hideOwnRecipes
     SND:UpdateDirectoryResults(searchBox:GetText())
   end)
 
@@ -443,6 +465,7 @@ function SND:CreateDirectoryTab(parent)
       info.checked = option.value == frame.sortBy
       info.func = function()
         frame.sortBy = option.value
+        SND.db.config.filters.directory.sortBy = option.value
         UIDropDownMenu_SetText(sortDrop, option.text)
         SND:UpdateDirectoryResults(searchBox:GetText())
       end
@@ -450,7 +473,14 @@ function SND:CreateDirectoryTab(parent)
     end
   end)
   UIDropDownMenu_SetWidth(sortDrop, 110)
-  UIDropDownMenu_SetText(sortDrop, T("Name (A-Z)"))
+  -- Set initial text based on saved sortBy value
+  local sortTextMap = {
+    name_az = T("Name (A-Z)"),
+    name_za = T("Name (Z-A)"),
+    rarity = T("Rarity (High to Low)"),
+    level = T("Level (High to Low)"),
+  }
+  UIDropDownMenu_SetText(sortDrop, sortTextMap[frame.sortBy] or T("Name (A-Z)"))
 
   local columnGap = 10
 
@@ -695,8 +725,24 @@ function SND:CreateDirectoryTab(parent)
   matsScrollFrame:SetPoint("BOTTOMRIGHT", rightContainer, "BOTTOMRIGHT", -26, 8)
 
   local matsScrollChild = CreateFrame("Frame", nil, matsScrollFrame)
-  matsScrollChild:SetSize(230, 220)
+  matsScrollChild:SetHeight(220)
   matsScrollFrame:SetScrollChild(matsScrollChild)
+  -- Match scroll child width to scroll frame so text doesn't wrap early
+  matsScrollFrame:SetScript("OnSizeChanged", function(sf)
+    matsScrollChild:SetWidth(sf:GetWidth())
+  end)
+  matsScrollChild:SetWidth(matsScrollFrame:GetWidth() > 0 and matsScrollFrame:GetWidth() or 300)
+
+  -- Enable item link tooltips on hover
+  matsScrollChild:SetHyperlinksEnabled(true)
+  matsScrollChild:SetScript("OnHyperlinkEnter", function(_, link)
+    GameTooltip:SetOwner(matsScrollChild, "ANCHOR_CURSOR")
+    GameTooltip:SetHyperlink(link)
+    GameTooltip:Show()
+  end)
+  matsScrollChild:SetScript("OnHyperlinkLeave", function()
+    GameTooltip:Hide()
+  end)
 
   local itemPreviewMats = matsScrollChild:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
   itemPreviewMats:SetPoint("TOPLEFT", 0, 0)
@@ -764,6 +810,9 @@ function SND:CreateDirectoryTab(parent)
         GameTooltip:SetOwner(btn, "ANCHOR_RIGHT")
         if btn.outputLink then
           GameTooltip:SetHyperlink(btn.outputLink)
+        elseif type(btn.recipeSpellID) == "number" then
+          -- No item link (e.g. enchanting) — show spell tooltip
+          GameTooltip:SetSpellByID(btn.recipeSpellID)
         else
           GameTooltip:SetText(btn.displayItemText or (btn.label and btn.label:GetText() or ""))
         end
@@ -806,11 +855,6 @@ function SND:CreateDirectoryTab(parent)
   frame.itemPreviewCrafter = itemPreviewCrafter
   frame.itemPreviewMats = itemPreviewMats
   frame.itemPreviewMatsScrollChild = matsScrollChild
-  frame.selectedProfession = "All"
-  frame.onlineOnly = false
-  frame.sharedMatsOnly = false
-  frame.hideOwnRecipes = false
-  frame.sortBy = "name_az"
 
   UIDropDownMenu_Initialize(professionDrop, function(dropdown, level)
     local options = SND:GetProfessionFilterOptions()
@@ -821,6 +865,7 @@ function SND:CreateDirectoryTab(parent)
       info.checked = value == frame.selectedProfession
       info.func = function()
         frame.selectedProfession = value
+        SND.db.config.filters.directory.selectedProfession = value
         UIDropDownMenu_SetText(professionDrop, value)
         SND:UpdateDirectoryResults(searchBox:GetText())
       end
@@ -926,6 +971,14 @@ function SND:CreateRequestsTab(parent)
   -- UIDropDownMenu_SetText(sortDrop, T("Name (A-Z)"))
 
   -- Profession filter
+  -- Load saved filter settings from database (must happen before checkbox creation)
+  local savedReqFilters = SND.db.config.filters.requests
+  frame.professionFilter = savedReqFilters.professionFilter or "All"
+  frame.statusFilter = savedReqFilters.statusFilter or "ALL"
+  frame.onlyMine = savedReqFilters.onlyMine or false
+  frame.onlyClaimable = savedReqFilters.onlyClaimable or false
+  frame.hasMaterialsOnly = savedReqFilters.hasMaterialsOnly or false
+
   local professionLabel = filterBar:CreateFontString(nil, "OVERLAY", "GameFontNormal")
   professionLabel:SetPoint("TOPLEFT", searchLabel, "TOPRIGHT", 160, 0)
   professionLabel:SetText("Profession")
@@ -944,24 +997,30 @@ function SND:CreateRequestsTab(parent)
   -- OnlyMine
   local onlyMineBox, onlyMine = CreateBoundedCheckbox(filterBar, T("My Requests"))
   onlyMineBox:SetPoint("LEFT", professionDrop, "RIGHT", 0, 12)
+  onlyMine:SetChecked(frame.onlyMine)
   onlyMine:SetScript("OnClick", function(btn)
     frame.onlyMine = btn:GetChecked() and true or false
+    SND.db.config.filters.requests.onlyMine = frame.onlyMine
     SND:RefreshRequestList(frame)
   end)
 
   -- Unclaimed only
   local onlyClaimableBox, onlyClaimable = CreateBoundedCheckbox(filterBar, "Unclaimed Only")
   onlyClaimableBox:SetPoint("LEFT", onlyMineBox, "LEFT", 0, -28)
+  onlyClaimable:SetChecked(frame.onlyClaimable)
   onlyClaimable:SetScript("OnClick", function(btn)
     frame.onlyClaimable = btn:GetChecked() and true or false
+    SND.db.config.filters.requests.onlyClaimable = frame.onlyClaimable
     SND:RefreshRequestList(frame)
   end)
 
   -- Has materials
   local hasMatsBox, hasMatsCheck = CreateBoundedCheckbox(filterBar, "Has Materials")
   hasMatsBox:SetPoint("LEFT", onlyClaimableBox, "LEFT", 0, -28)
+  hasMatsCheck:SetChecked(frame.hasMaterialsOnly)
   hasMatsCheck:SetScript("OnClick", function(btn)
     frame.hasMaterialsOnly = btn:GetChecked() and true or false
+    SND.db.config.filters.requests.hasMaterialsOnly = frame.hasMaterialsOnly
     SND:RefreshRequestList(frame)
   end)
 
@@ -1144,6 +1203,17 @@ function SND:CreateRequestsTab(parent)
   materialsChild:SetSize(300, 150)
   materialsScroll:SetScrollChild(materialsChild)
 
+  -- Enable item link tooltips on hover
+  materialsChild:SetHyperlinksEnabled(true)
+  materialsChild:SetScript("OnHyperlinkEnter", function(_, link)
+    GameTooltip:SetOwner(materialsChild, "ANCHOR_CURSOR")
+    GameTooltip:SetHyperlink(link)
+    GameTooltip:Show()
+  end)
+  materialsChild:SetScript("OnHyperlinkLeave", function()
+    GameTooltip:Hide()
+  end)
+
   local materialsList = materialsChild:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
   materialsList:SetPoint("TOPLEFT", 0, 0)
   materialsList:SetPoint("RIGHT", materialsChild, "RIGHT", -4, 0)
@@ -1242,7 +1312,7 @@ function SND:CreateRequestsTab(parent)
   local requestorColumnX = 48
   local itemColumnX = 170
   local statusColumnX = 356
-  for i = 1, 10 do
+  for i = 1, 50 do
     local row = CreateFrame("Button", nil, scrollChild, "BackdropTemplate")
     row:SetHeight(requestRowHeight)
     if i == 1 then
@@ -1333,7 +1403,7 @@ function SND:CreateRequestsTab(parent)
     listButtons[i] = row
   end
 
-  scrollChild:SetHeight(10 * (requestRowHeight + 2))
+  scrollChild:SetHeight(50 * (requestRowHeight + 2))
 
   frame.searchBox = searchBox
   frame.listScrollFrame = scrollFrame
@@ -1365,11 +1435,6 @@ function SND:CreateRequestsTab(parent)
   frame.saveNotesButton = saveNotesButton
   frame.selectedRequestId = nil
   frame.searchQuery = ""
-  frame.professionFilter = "All"
-  frame.statusFilter = "ALL"
-  frame.onlyMine = false
-  frame.onlyClaimable = false
-  frame.hasMaterialsOnly = false
 
   UIDropDownMenu_Initialize(professionDrop, function(dropdown, level)
     local options = SND:GetProfessionFilterOptions()
@@ -1380,6 +1445,7 @@ function SND:CreateRequestsTab(parent)
       info.checked = value == frame.professionFilter
       info.func = function()
         frame.professionFilter = value
+        SND.db.config.filters.requests.professionFilter = value
         UIDropDownMenu_SetText(professionDrop, value)
         SND:RefreshRequestList(frame)
       end
@@ -1389,22 +1455,37 @@ function SND:CreateRequestsTab(parent)
   UIDropDownMenu_SetWidth(professionDrop, 110)
   UIDropDownMenu_SetText(professionDrop, frame.professionFilter)
 
+  -- Status dropdown with Camel Case display labels
+  -- Internal filter values remain uppercase (matching request.status)
+  local statusOptions = {
+    { label = "All",       value = "ALL" },
+    { label = "Open",      value = "OPEN" },
+    { label = "Claimed",   value = "CLAIMED" },
+    { label = "Crafted",   value = "CRAFTED" },
+    { label = "Delivered", value = "DELIVERED" },
+    { label = "Cancelled", value = "CANCELLED" },
+  }
+  local statusLabelMap = {}
+  for _, opt in ipairs(statusOptions) do
+    statusLabelMap[opt.value] = opt.label
+  end
+
   UIDropDownMenu_Initialize(statusDrop, function(dropdown, level)
-    local options = { "ALL", "OPEN", "CLAIMED", "CRAFTED", "DELIVERED", "CANCELLED" }
-    for _, option in ipairs(options) do
+    for _, opt in ipairs(statusOptions) do
       local info = UIDropDownMenu_CreateInfo()
-      info.text = option
-      info.checked = option == frame.statusFilter
+      info.text = opt.label
+      info.checked = opt.value == frame.statusFilter
       info.func = function()
-        frame.statusFilter = option
-        UIDropDownMenu_SetText(statusDrop, option)
+        frame.statusFilter = opt.value
+        SND.db.config.filters.requests.statusFilter = opt.value
+        UIDropDownMenu_SetText(statusDrop, opt.label)
         SND:RefreshRequestList(frame)
       end
       UIDropDownMenu_AddButton(info, level)
     end
   end)
   UIDropDownMenu_SetWidth(statusDrop, 110)
-  UIDropDownMenu_SetText(statusDrop, frame.statusFilter)
+  UIDropDownMenu_SetText(statusDrop, statusLabelMap[frame.statusFilter] or frame.statusFilter)
 
   return frame
 end
@@ -1478,6 +1559,56 @@ function SND:CreateMeTab(parent)
   minimapToggle:SetScript("OnClick", function(btn)
     SND.db.config.showMinimapButton = btn:GetChecked() and true or false
     SND:UpdateMinimapButtonVisibility()
+  end)
+
+  local notificationsToggle = CreateFrame("CheckButton", nil, leftColumn, "UICheckButtonTemplate")
+  notificationsToggle:SetPoint("TOPLEFT", minimapToggle, "BOTTOMLEFT", 0, -2)
+  notificationsToggle.text:SetText("Show chat notifications")
+  notificationsToggle:SetChecked(SND.db.config.showNotifications and true or false)
+  notificationsToggle:SetScript("OnClick", function(btn)
+    SND.db.config.showNotifications = btn:GetChecked() and true or false
+  end)
+
+  local priceSourceLabel = leftColumn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+  priceSourceLabel:SetPoint("TOPLEFT", notificationsToggle, "BOTTOMLEFT", 0, -10)
+  priceSourceLabel:SetText("Price Source")
+
+  local priceSourceValues = {
+    { value = "auto", label = "Auto" },
+    { value = "auctionator", label = "Auctionator" },
+    { value = "tsm", label = "TradeSkillMaster" },
+    { value = "none", label = "None" },
+  }
+
+  local priceSourceDropdown = CreateFrame("Frame", "SNDPriceSourceDropdown", leftColumn, "UIDropDownMenuTemplate")
+  priceSourceDropdown:SetPoint("TOPLEFT", priceSourceLabel, "BOTTOMLEFT", -16, -2)
+  frame.priceSourceDropdown = priceSourceDropdown
+
+  local function getPriceSourceLabel(val)
+    for _, entry in ipairs(priceSourceValues) do
+      if entry.value == val then return entry.label end
+    end
+    return "Auto"
+  end
+
+  UIDropDownMenu_SetWidth(priceSourceDropdown, 140)
+  UIDropDownMenu_SetText(priceSourceDropdown, getPriceSourceLabel(SND.db.config.priceSource or "auto"))
+  UIDropDownMenu_Initialize(priceSourceDropdown, function(_, level)
+    for _, entry in ipairs(priceSourceValues) do
+      local info = UIDropDownMenu_CreateInfo()
+      info.text = entry.label
+      info.value = entry.value
+      info.checked = (SND.db.config.priceSource or "auto") == entry.value
+      info.func = function(btn)
+        SND.db.config.priceSource = btn.value
+        UIDropDownMenu_SetText(priceSourceDropdown, getPriceSourceLabel(btn.value))
+        CloseDropDownMenus()
+        if type(SND.RefreshAllTabs) == "function" then
+          SND:RefreshAllTabs()
+        end
+      end
+      UIDropDownMenu_AddButton(info, level)
+    end
   end)
 
   local scanLogCopyModal = CreateFrame("Frame", nil, frame, "BackdropTemplate")
@@ -1755,6 +1886,7 @@ function SND:CreateRequestModal()
     return
   end
   local modal = CreateFrame("Frame", "SNDRequestModal", UIParent, "BackdropTemplate")
+  tinsert(UISpecialFrames, "SNDRequestModal")
   modal:SetSize(600, 620)
   modal:SetPoint("CENTER")
   modal:SetFrameStrata(SND_MODAL_STRATA)
@@ -1904,13 +2036,18 @@ function SND:CreateRequestModal()
 
       local nameText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
       nameText:SetPoint("LEFT", row, "LEFT", 2, 0)
-      nameText:SetWidth(250)
+      nameText:SetWidth(200)
       nameText:SetJustifyH("LEFT")
 
       local requiredText = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-      requiredText:SetPoint("LEFT", nameText, "RIGHT", 8, 0)
-      requiredText:SetWidth(120)
+      requiredText:SetPoint("LEFT", nameText, "RIGHT", 4, 0)
+      requiredText:SetWidth(90)
       requiredText:SetJustifyH("LEFT")
+
+      local priceText = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+      priceText:SetPoint("LEFT", requiredText, "RIGHT", 4, 0)
+      priceText:SetWidth(110)
+      priceText:SetJustifyH("RIGHT")
 
       local haveBox = CreateFrame("EditBox", nil, row, "InputBoxTemplate")
       haveBox:SetPoint("RIGHT", row, "RIGHT", -2, 0)
@@ -1926,7 +2063,21 @@ function SND:CreateRequestModal()
 
       row.nameText = nameText
       row.requiredText = requiredText
+      row.priceText = priceText
       row.haveBox = haveBox
+
+      row:EnableMouse(true)
+      row:SetScript("OnEnter", function(thisRow)
+        if thisRow.itemID then
+          GameTooltip:SetOwner(thisRow, "ANCHOR_RIGHT")
+          GameTooltip:SetItemByID(thisRow.itemID)
+          GameTooltip:Show()
+        end
+      end)
+      row:SetScript("OnLeave", function()
+        GameTooltip:Hide()
+      end)
+
       row:Hide()
       table.insert(modal.materialRows, row)
     end
@@ -1985,6 +2136,9 @@ function SND:CreateRequestModal()
       return a.name < b.name
     end)
 
+    local hasAuctionData = SND:IsAuctionPriceAvailable()
+    local costData = hasAuctionData and SND:GetRecipeMaterialCost(recipeSpellID, qty) or nil
+
     ensureMaterialRowCapacity(#list)
     modal.ownedCounts = modal.ownedCounts or {}
 
@@ -1993,6 +2147,15 @@ function SND:CreateRequestModal()
       row.itemID = entry.itemID
       row.nameText:SetText(entry.name)
       row.requiredText:SetText(string.format("Need: %d", entry.required))
+
+      -- Show per-material price if available
+      if row.priceText then
+        if costData and costData.itemCosts[entry.itemID] and costData.itemCosts[entry.itemID].totalPrice then
+          row.priceText:SetText(SND:FormatPrice(costData.itemCosts[entry.itemID].totalPrice))
+        else
+          row.priceText:SetText(hasAuctionData and "—" or "")
+        end
+      end
 
       local owned = modal.ownedCounts[entry.itemID]
       if owned == nil then
@@ -2009,9 +2172,65 @@ function SND:CreateRequestModal()
       row:Hide()
     end
 
+    -- Calculate extra height for price summary
+    local summaryLines = 0
+    if costData then
+      summaryLines = 2 -- separator + material cost
+      local profitData = SND:GetRecipeProfitEstimate(recipeSpellID, qty)
+      if profitData and profitData.outputValue then
+        summaryLines = summaryLines + 1 -- output value
+        if profitData.profit then
+          summaryLines = summaryLines + 1 -- profit
+        end
+      end
+    end
+
     if modal.materialsScrollChild then
-      local contentHeight = math.max(140, (#list * 28))
+      local contentHeight = math.max(140, (#list * 28) + (summaryLines * 20))
       modal.materialsScrollChild:SetHeight(contentHeight)
+    end
+
+    -- Update or create price summary text
+    if not modal.priceSummaryText then
+      if modal.materialsScrollChild then
+        modal.priceSummaryText = modal.materialsScrollChild:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        modal.priceSummaryText:SetJustifyH("LEFT")
+        modal.priceSummaryText:SetWidth(480)
+      end
+    end
+
+    if modal.priceSummaryText then
+      if costData then
+        -- Position below the last visible material row
+        local lastRow = modal.materialRows[#list]
+        if lastRow then
+          modal.priceSummaryText:SetPoint("TOPLEFT", lastRow, "BOTTOMLEFT", 0, -8)
+        end
+
+        local summaryParts = {}
+        table.insert(summaryParts, "|cff888888-------------|r")
+        local costLabel = "Material Cost: " .. SND:FormatPrice(costData.totalCost)
+        if costData.incomplete then
+          costLabel = costLabel .. " |cffFF8800(cost data incomplete)|r"
+        end
+        table.insert(summaryParts, costLabel)
+
+        local profitData = SND:GetRecipeProfitEstimate(recipeSpellID, qty)
+        if profitData and profitData.outputValue then
+          table.insert(summaryParts, "Output Value: " .. SND:FormatPrice(profitData.outputValue))
+          if profitData.profit then
+            local profitColor = profitData.profit >= 0 and "|cff00FF00" or "|cffFF0000"
+            local sign = profitData.profit >= 0 and "+" or ""
+            table.insert(summaryParts, "Est. Profit: " .. profitColor .. sign .. SND:FormatPrice(profitData.profit) .. "|r")
+          end
+        end
+
+        modal.priceSummaryText:SetText(table.concat(summaryParts, "\n"))
+        modal.priceSummaryText:Show()
+      else
+        modal.priceSummaryText:SetText("")
+        modal.priceSummaryText:Hide()
+      end
     end
 
     if modal.materialsEmptyText then

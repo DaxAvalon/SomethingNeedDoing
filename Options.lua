@@ -47,24 +47,16 @@ function SND:GetOptionsTable()
         name = T("General"),
         order = 1,
         args = {
-          showMinimapButton = {
-            type = "toggle",
-            name = T("Show minimap button"),
-            order = 1,
-            get = function()
-              return getConfig(self).showMinimapButton and true or false
-            end,
-            set = function(_, value)
-              getConfig(self).showMinimapButton = value and true or false
-              if type(self.UpdateMinimapButtonVisibility) == "function" then
-                self:UpdateMinimapButtonVisibility()
-              end
-            end,
+          publishNote = {
+            type = "description",
+            name = T("To share your recipes with guild members, open each profession window at least once. Recipes are scanned and published when you view the profession UI."),
+            order = 0,
+            fontSize = "medium",
           },
           debugMode = {
             type = "toggle",
             name = T("Debug mode (logging/diagnostics only)"),
-            order = 2,
+            order = 1,
             get = function()
               return getConfig(self).debugMode and true or false
             end,
@@ -79,18 +71,6 @@ function SND:GetOptionsTable()
                   end
                 end
               end
-            end,
-          },
-          showNotifications = {
-            type = "toggle",
-            name = T("Show chat notifications"),
-            desc = T("Show messages when other players learn recipes or create craft requests you can fulfill. Messages will never appear during combat."),
-            order = 3,
-            get = function()
-              return getConfig(self).showNotifications and true or false
-            end,
-            set = function(_, value)
-              getConfig(self).showNotifications = value and true or false
             end,
           },
           autoPublishOnLogin = {

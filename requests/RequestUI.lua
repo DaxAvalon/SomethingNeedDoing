@@ -176,6 +176,15 @@ function SND:RefreshRequestList(requestsFrame)
     requestsFrame.listScrollFrame:SetVerticalScroll(0)
   end
 
+  -- Dynamically adjust scroll child height to fit visible results
+  local visibleCount = math.min(#results - ((page - 1) * pageSize), pageSize)
+  if requestsFrame.listScrollFrame and requestsFrame.requestRowHeight then
+    local scrollChild = requestsFrame.listScrollFrame:GetScrollChild()
+    if scrollChild then
+      scrollChild:SetHeight(math.max(visibleCount, 1) * (requestsFrame.requestRowHeight + 2))
+    end
+  end
+
   local startIndex = (page - 1) * pageSize + 1
   local firstSelected = nil
   for i, row in ipairs(requestsFrame.listButtons) do
@@ -207,7 +216,7 @@ function SND:RefreshRequestList(requestsFrame)
       row.displayItemText = rowName
       if row.quickClaimButton then
         row.quickClaimButton:SetShown(status == "OPEN")
-        row.quickClaimButton:SetEnabled(status == "OPEN")
+        row.quickClaimButton:SetEnabled(status == "OPEN" and self:CanPlayerCraftRecipe(request.recipeSpellID))
       end
       if row.label then
         row.label:SetText(rowName)
@@ -265,6 +274,7 @@ function SND:FilterRequests(requestsFrame)
   local results = {}
   local query = string.lower((requestsFrame.searchQuery or ""):gsub("^%s+", ""):gsub("%s+$", ""))
   local professionFilter = requestsFrame.professionFilter or "All"
+  local localPlayerKey = self:GetPlayerKey(UnitName("player"))
   for requestId, request in pairs(self.db.requests) do
     local recipe = self.db.recipeIndex[request.recipeSpellID]
     local _, sanitizedText = self:ResolveReadableItemDisplay(request.recipeSpellID, {
@@ -294,7 +304,7 @@ function SND:FilterRequests(requestsFrame)
     local recipeProfession = (recipe and (recipe.professionName or recipe.profession)) or ""
     local requesterEntry = self.db.players and self.db.players[requester] or nil
     local requesterOnline = requesterEntry and requesterEntry.online and true or false
-    local hasMaterials = request.needsMats == false
+    local hasMaterials = not request.needsMats
 
     local queryMatch = (query == "")
       or string.find(string.lower(name), query, 1, true)
@@ -307,12 +317,33 @@ function SND:FilterRequests(requestsFrame)
     if requestsFrame.statusFilter == "ALL" or request.status == requestsFrame.statusFilter then
       if not requestsFrame.onlyClaimable or request.status == "OPEN" then
         if queryMatch and professionMatch and onlineMatch and hasMaterialsMatch then
-          table.insert(results, { id = requestId, data = request, name = name })
+          -- Hide BoP requests from players who can't craft them
+          -- (always show to the requester themselves)
+          local bopVisible = true
+          if request.requester ~= localPlayerKey and self:IsRecipeOutputBoP(request.recipeSpellID) then
+            bopVisible = self:CanPlayerCraftRecipe(request.recipeSpellID)
+          end
+          if bopVisible then
+            table.insert(results, { id = requestId, data = request, name = name })
+          end
         end
       end
     end
   end
+  -- Status priority: OPEN first, then active statuses, then terminal statuses last
+  local statusPriority = {
+    OPEN = 1,
+    CLAIMED = 2,
+    CRAFTED = 3,
+    DELIVERED = 4,
+    CANCELLED = 5,
+  }
   table.sort(results, function(a, b)
+    local prioA = statusPriority[a.data.status] or 3
+    local prioB = statusPriority[b.data.status] or 3
+    if prioA ~= prioB then
+      return prioA < prioB
+    end
     return (a.data.updatedAt or 0) > (b.data.updatedAt or 0)
   end)
   return results
@@ -594,6 +625,10 @@ function SND:GetRequestMaterialsText(request)
   if not reagents then
     return "No reagent data yet."
   end
+
+  local hasAuctionData = self:IsAuctionPriceAvailable()
+  local costData = hasAuctionData and self:GetRecipeMaterialCost(request.recipeSpellID, request.qty or 1) or nil
+
   local lines = {}
   for itemID, count in pairs(reagents) do
     local required = count * (request.qty or 1)
@@ -604,9 +639,35 @@ function SND:GetRequestMaterialsText(request)
       have = request.requesterMatsSnapshot[itemID] or 0
     end
     local need = math.max(0, required - have)
-    local itemName = GetItemInfo(itemID) or ("Item " .. itemID)
-    table.insert(lines, string.format("%s: %d / %d (need %d)", itemName, have, required, need))
+    local itemName, itemLink = GetItemInfo(itemID)
+    local displayName = itemLink or itemName or ("Item " .. itemID)
+    local line = string.format("%s: %d / %d (need %d)", displayName, have, required, need)
+    if costData and costData.itemCosts[itemID] and costData.itemCosts[itemID].totalPrice then
+      line = line .. " — " .. self:FormatPrice(costData.itemCosts[itemID].totalPrice)
+    end
+    table.insert(lines, line)
   end
+
+  -- Add price summary if Auctionator data is available
+  if costData then
+    table.insert(lines, "|cff888888-------------|r")
+    local costLabel = "Material Cost: " .. self:FormatPrice(costData.totalCost)
+    if costData.incomplete then
+      costLabel = costLabel .. " |cffFF8800(incomplete)|r"
+    end
+    table.insert(lines, costLabel)
+
+    local profitData = self:GetRecipeProfitEstimate(request.recipeSpellID, request.qty or 1)
+    if profitData and profitData.outputValue then
+      table.insert(lines, "Output Value: " .. self:FormatPrice(profitData.outputValue))
+      if profitData.profit then
+        local profitColor = profitData.profit >= 0 and "|cff00FF00" or "|cffFF0000"
+        local sign = profitData.profit >= 0 and "+" or ""
+        table.insert(lines, "Est. Profit: " .. profitColor .. sign .. self:FormatPrice(profitData.profit) .. "|r")
+      end
+    end
+  end
+
   return table.concat(lines, "\n")
 end
 
@@ -648,7 +709,7 @@ function SND:GetRequestWorkflowText(request)
     end
   end
 
-  local workflowLine = "Workflow: " .. table.concat(stateDisplay, " → ")
+  local workflowLine = "Workflow: " .. table.concat(stateDisplay, " > ")
 
   -- Determine next action text
   local nextAction = ""

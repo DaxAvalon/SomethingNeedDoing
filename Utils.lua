@@ -112,7 +112,7 @@ function SND:PushScanLogLineToUI(line)
     return false
   end
 
-  local meFrame = self.meTabFrame or (self.mainFrame and self.mainFrame.contentFrames and self.mainFrame.contentFrames[3])
+  local meFrame = self.meTabFrame or (self.mainFrame and self.mainFrame.contentFrames and self.mainFrame.contentFrames[4])
   local logFrame = meFrame and meFrame.scanLogMessageFrame
   if not logFrame or not logFrame.AddMessage then
     return false
@@ -157,11 +157,32 @@ function SND:GetAllProfessionOptions()
     "Enchanting",
     "Jewelcrafting",
     "Engineering",
-    "Inscription",
     "Cooking",
     "First Aid",
-    "Fishing",
   }
+end
+
+local SKILL_LINE_ID_TO_NAME = {
+  [171] = "Alchemy",
+  [164] = "Blacksmithing",
+  [185] = "Cooking",
+  [333] = "Enchanting",
+  [202] = "Engineering",
+  [129] = "First Aid",
+  [356] = "Fishing",
+  [182] = "Herbalism",
+  [755] = "Jewelcrafting",
+  [165] = "Leatherworking",
+  [186] = "Mining",
+  [393] = "Skinning",
+  [197] = "Tailoring",
+}
+
+function SND:GetProfessionNameBySkillLineID(profKey)
+  if type(profKey) == "number" then
+    return SKILL_LINE_ID_TO_NAME[profKey]
+  end
+  return nil
 end
 
 function SND:ScheduleSNDTimer(delaySeconds, fn)

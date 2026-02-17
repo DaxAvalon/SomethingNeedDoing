@@ -322,9 +322,12 @@ function SND:UpdateRequestStatus(requestId, newStatus, claimedBy, options)
     request.cancellation = nil
   end
 
-  -- Send delivery notification to requester
+  -- Send delivery notification to requester and record craft log
   if newStatus == STATUS_DELIVERED then
     self:SendDeliveryNotification(request, actorKey)
+    if type(self.RecordCraftLogEntry) == "function" then
+      self:RecordCraftLogEntry(requestId, request)
+    end
   end
 
   self:SendRequestUpdate(requestId, request)
@@ -461,6 +464,9 @@ function SND:RequestPolicyEvaluateStatusMutation(request, newStatus, actorKey, c
   end
 
   if newStatus == STATUS_CLAIMED and currentStatus == STATUS_OPEN and claimedBy == policyActorKey then
+    if not self:CanPlayerCraftRecipe(request.recipeSpellID, policyActorKey) then
+      return { allowed = false, reason = "player_cannot_craft" }
+    end
     return {
       allowed = true,
       actionType = MUTATION_ACTION_STATUS_UPDATE,
@@ -673,6 +679,61 @@ function SND:IsOfficerOrAbove(actorKey)
   return self:IsGuildRoleAtLeast(actorKey, "officer")
 end
 
+function SND:CanPlayerCraftRecipe(recipeSpellID, playerKey)
+  if self.NormalizeRecipeSpellID then
+    recipeSpellID = self:NormalizeRecipeSpellID(recipeSpellID)
+  end
+  if not recipeSpellID then
+    return false
+  end
+
+  playerKey = playerKey or self:GetPlayerKey(UnitName("player"))
+  if not playerKey then
+    return false
+  end
+
+  local playerEntry = self.db.players[playerKey]
+  if not playerEntry or not playerEntry.professions then
+    return false
+  end
+
+  for _, prof in pairs(playerEntry.professions) do
+    if prof.recipes and prof.recipes[recipeSpellID] then
+      return true
+    end
+  end
+
+  return false
+end
+
+function SND:IsRecipeOutputBoP(recipeSpellID)
+  if self.NormalizeRecipeSpellID then
+    recipeSpellID = self:NormalizeRecipeSpellID(recipeSpellID)
+  end
+  if not recipeSpellID then
+    return false
+  end
+
+  local itemID = self:GetRecipeOutputItemID(recipeSpellID)
+  if not itemID then
+    return false
+  end
+
+  -- select(14, GetItemInfo(itemID)) returns bindType
+  -- 0=Not bound, 1=BoP, 2=BoE, 3=Bind on Use, 4=Quest
+  local bindType = select(14, GetItemInfo(itemID))
+  if bindType == nil then
+    -- Item info not cached yet; don't hide (conservative)
+    -- Queue async load so next refresh will have the data
+    if type(self.WarmItemCache) == "function" then
+      self:WarmItemCache({itemID})
+    end
+    return false
+  end
+
+  return bindType == 1
+end
+
 function SND:SnapshotMats(recipeSpellID, qty)
   local snapshot = {}
   local reagents = self:GetRecipeReagents(recipeSpellID)
@@ -846,9 +907,12 @@ function SND:SendRequestDelete(requestId, options)
   local now = self:Now()
   local moderationReason = normalizeModerationReason(options.reason)
 
+  local existingRequest = self.db.requests[requestId]
+  local existingVersion = tonumber(existingRequest and existingRequest.version) or 0
   local tombstone = {
     id = requestId,
     entityType = "REQUEST",
+    version = existingVersion + 1,
     deletedAtServer = now,
     updatedAtServer = now,
     updatedBy = actorKey,

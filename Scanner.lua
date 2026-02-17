@@ -63,12 +63,71 @@ local function countStoredRecipesForPlayer(playerEntry)
   return count
 end
 
+-- Prune local player professions that are no longer valid.
+-- Uses GetProfessions()/GetProfessionInfo() to enumerate current professions
+-- and removes entries that the player no longer has.
+function SND:PruneStaleLocalProfessions()
+  local playerKey = self:GetPlayerKey(UnitName("player"))
+  if not playerKey then
+    return
+  end
+  local playerEntry = self.db.players[playerKey]
+  if not playerEntry or not playerEntry.professions then
+    return
+  end
+
+  -- Build a set of valid skillLineIDs from the WoW API
+  local validSkillLineIDs = {}
+  if type(GetProfessions) == "function" then
+    local prof1, prof2, arch, fish, cook, firstAid = GetProfessions()
+    local indices = { prof1, prof2, arch, fish, cook, firstAid }
+    for _, idx in ipairs(indices) do
+      if idx then
+        local info = { GetProfessionInfo(idx) }
+        local skillLineID = info[7] -- 7th return value is skillLine
+        if skillLineID then
+          validSkillLineIDs[skillLineID] = true
+        end
+      end
+    end
+  end
+
+  -- If we couldn't enumerate professions (API unavailable), skip pruning
+  if not next(validSkillLineIDs) then
+    return
+  end
+
+  local pruned = 0
+  for profKey, _ in pairs(playerEntry.professions) do
+    if type(profKey) == "number" and not validSkillLineIDs[profKey] then
+      playerEntry.professions[profKey] = nil
+      pruned = pruned + 1
+    end
+  end
+
+  if pruned > 0 then
+    debugScan(self, string.format("Scanner: pruned %d stale profession(s) from local player", pruned))
+  end
+end
+
 local SCAN_INTERVAL = 60 * 60 * 24
 local AUTO_SCAN_DEDUPE_WINDOW_SECONDS = 1
-local PUBLISH_COOLDOWN_SECONDS = 30
+local PUBLISH_COOLDOWN_SECONDS = 3
 
 local function isTradeSkillFrameVisible()
-  return TradeSkillFrame and TradeSkillFrame.IsShown and TradeSkillFrame:IsShown() or false
+  -- Classic/TBC: GetTradeSkillLine returns the profession name when the window is open
+  if type(GetTradeSkillLine) == "function" then
+    local ok, line = pcall(GetTradeSkillLine)
+    if ok and line and line ~= "" and line ~= "UNKNOWN" then
+      return true
+    end
+  end
+  -- Retail fallback
+  if C_TradeSkillUI and C_TradeSkillUI.GetTradeSkillLine then
+    local skillLineName = C_TradeSkillUI.GetTradeSkillLine()
+    return skillLineName ~= nil and skillLineName ~= ""
+  end
+  return false
 end
 
 local function shouldScan(lastScan)
@@ -132,7 +191,7 @@ function SND:ShowZeroRecipesAlert(scanID)
 
   -- Only show in UI label, no popups
   if self.mainFrame and self.mainFrame.contentFrames then
-    local meFrame = self.mainFrame.contentFrames[3]
+    local meFrame = self.mainFrame.contentFrames[4]
     if meFrame and meFrame.scanAlertLabel then
       meFrame.scanAlertLabel:SetText(T("Scan Alert: %s", message))
       meFrame.scanAlertLabel:Show()
@@ -183,8 +242,15 @@ function SND:InitScanner()
       self:ScanProfessions("bucket:TRADE_SKILL_UPDATE")
     end)
   else
+    -- Add a small delay to prevent interfering with profession UI operations
     self:RegisterEvent("TRADE_SKILL_UPDATE", function(selfRef)
-      selfRef:ScanProfessions("event:TRADE_SKILL_UPDATE")
+      if selfRef.ScheduleTimer then
+        selfRef:ScheduleTimer(function()
+          selfRef:ScanProfessions("event:TRADE_SKILL_UPDATE")
+        end, 0.4)
+      else
+        selfRef:ScanProfessions("event:TRADE_SKILL_UPDATE")
+      end
     end)
   end
   self:RegisterEvent("CRAFT_SHOW", function(selfRef)
@@ -422,7 +488,9 @@ function SND:ScanProfessions(trigger)
   elseif profEntry.maxRank == nil then
     profEntry.maxRank = 0
   end
-  profEntry.recipes = profEntry.recipes or {}
+  -- Clear recipes before scanning so unlearned recipes don't persist.
+  -- The scan is the authoritative source for the local player's recipes.
+  profEntry.recipes = {}
 
   local foundCount = 0
   if C_TradeSkillUI and C_TradeSkillUI.IsTradeSkillReady and currentSkillLineID then
@@ -453,11 +521,24 @@ function SND:ScanProfessions(trigger)
     countStoredRecipesForPlayer(playerEntry),
     tonumber(self.scanner.activeScanRecipesFound) or 0
   ))
+  -- Prune professions the local player no longer has (e.g., dropped a profession)
+  self:PruneStaleLocalProfessions()
+
+  local isFirstScan = (tonumber(self.scanner.lastPublish) or 0) == 0
   self.scanner.lastScan = self:Now()
   self.scanner.dirty = false
   self:DebouncedPublish()
   self:PublishSharedMats()
   self:FinalizeScanRun("scan-complete-current-open-profession")
+
+  -- After first scan, schedule a quick full-state broadcast so the guild gets
+  -- the newly scanned data without waiting for the next sync ticker.
+  if isFirstScan and type(self.BroadcastFullState) == "function" then
+    self.comms.lastFullSyncAt = 0
+    self:ScheduleSNDTimer(2, function()
+      self:BroadcastFullState("first-scan")
+    end)
+  end
 
   if self.mainFrame and self.mainFrame.contentFrames then
     local directoryFrame = self.mainFrame.contentFrames[1]
@@ -575,7 +656,8 @@ function SND:ScanCraftProfessions(trigger)
   elseif profEntry.maxRank == nil then
     profEntry.maxRank = 0
   end
-  profEntry.recipes = profEntry.recipes or {}
+  -- Clear recipes before scanning so unlearned recipes don't persist.
+  profEntry.recipes = {}
 
   local foundCount = self:ScanCraftRecipesForSkillLine(currentSkillLineID, profEntry, trimmedCraftLine)
 

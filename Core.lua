@@ -61,6 +61,7 @@ function SND:UnregisterEvent(event)
 end
 
 function SND:Initialize()
+  self.addonVersion = GetAddOnMetadata and GetAddOnMetadata(addonName, "Version") or "0.0.0"
   self:InitDB()
   self:EnsureScanLogBuffer()
   self:DebugLog("MARK startup: debug sink initialized", true)
@@ -170,7 +171,7 @@ function SND:WhisperCrafter(recipeSpellID)
 end
 
 function SND:RefreshMeTab(meFrame)
-  meFrame = meFrame or self.meTabFrame or (self.mainFrame and self.mainFrame.contentFrames and self.mainFrame.contentFrames[3])
+  meFrame = meFrame or self.meTabFrame or (self.mainFrame and self.mainFrame.contentFrames and self.mainFrame.contentFrames[4])
   if not meFrame or not meFrame.scanStatus or not meFrame.professionsList then
     if self.TraceScanLog then
       self:TraceScanLog("ui-refresh: RefreshMeTab skipped (me frame unavailable)")
@@ -267,7 +268,8 @@ function SND:RefreshAllTabs()
 
   local directoryFrame = self.mainFrame.contentFrames[1]
   local requestsFrame = self.mainFrame.contentFrames[2]
-  local meFrame = self.mainFrame.contentFrames[3]
+  local statsFrame = self.mainFrame.contentFrames[3]
+  local meFrame = self.mainFrame.contentFrames[4]
 
   if directoryFrame then
     self:UpdateDirectoryResults(directoryFrame.searchBox and directoryFrame.searchBox:GetText() or "")
@@ -275,6 +277,10 @@ function SND:RefreshAllTabs()
 
   if requestsFrame and requestsFrame.listButtons then
     self:RefreshRequestList(requestsFrame)
+  end
+
+  if statsFrame and type(self.RefreshStatsTab) == "function" then
+    self:RefreshStatsTab(statsFrame)
   end
 
   if meFrame then

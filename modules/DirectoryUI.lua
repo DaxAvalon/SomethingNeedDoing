@@ -261,8 +261,24 @@ function SND:RenderDirectoryList(directoryFrame, results)
     end
   end
 
-  -- Auto-select first recipe
-  self:SelectDirectoryRecipe(directoryFrame, firstSelected)
+  -- Preserve current selection if still in results, otherwise select first
+  local selectionToRestore = directoryFrame.selectedRecipeSpellID
+  if selectionToRestore then
+    local found = false
+    for _, result in ipairs(results) do
+      if result.recipeSpellID == selectionToRestore then
+        found = true
+        break
+      end
+    end
+    if found then
+      self:SelectDirectoryRecipe(directoryFrame, selectionToRestore)
+    else
+      self:SelectDirectoryRecipe(directoryFrame, firstSelected)
+    end
+  else
+    self:SelectDirectoryRecipe(directoryFrame, firstSelected)
+  end
 end
 
 -- ============================================================================
@@ -581,8 +597,9 @@ function SND:SelectDirectoryRecipe(directoryFrame, recipeSpellID)
     local mats = {}
     for itemKey, amount in pairs(reagents or {}) do
       local id = tonumber(itemKey) or itemKey
-      local name = GetItemInfo(id) or ("Item " .. tostring(id))
-      table.insert(mats, { name = name, amount = tonumber(amount) or 0 })
+      local name, itemLink = GetItemInfo(id)
+      name = name or ("Item " .. tostring(id))
+      table.insert(mats, { id = id, name = name, link = itemLink, amount = tonumber(amount) or 0 })
     end
 
     -- Sort by name
@@ -593,10 +610,41 @@ function SND:SelectDirectoryRecipe(directoryFrame, recipeSpellID)
     if #mats == 0 then
       directoryFrame.itemPreviewMats:SetText(self:Tr("No material data"))
     else
+      local hasAuctionData = self:IsAuctionPriceAvailable()
+      local costData = hasAuctionData and self:GetRecipeMaterialCost(recipeSpellID, 1) or nil
       local lines = {}
       for _, mat in ipairs(mats) do
-        table.insert(lines, string.format("• %s x%d", mat.name, mat.amount))
+        local displayName = mat.link or mat.name
+        local line = string.format("• %s x%d", displayName, mat.amount)
+        if costData and costData.itemCosts[mat.id] then
+          local itemCost = costData.itemCosts[mat.id]
+          if itemCost.totalPrice then
+            line = line .. " — " .. self:FormatPrice(itemCost.totalPrice)
+          end
+        end
+        table.insert(lines, line)
       end
+
+      -- Add price summary if Auctionator data is available
+      if costData then
+        table.insert(lines, "|cff888888-------------|r")
+        local costLabel = "Material Cost: " .. self:FormatPrice(costData.totalCost)
+        if costData.incomplete then
+          costLabel = costLabel .. " |cffFF8800(incomplete)|r"
+        end
+        table.insert(lines, costLabel)
+
+        local profitData = self:GetRecipeProfitEstimate(recipeSpellID, 1)
+        if profitData and profitData.outputValue then
+          table.insert(lines, "Output Value: " .. self:FormatPrice(profitData.outputValue))
+          if profitData.profit then
+            local profitColor = profitData.profit >= 0 and "|cff00FF00" or "|cffFF0000"
+            local sign = profitData.profit >= 0 and "+" or ""
+            table.insert(lines, "Est. Profit: " .. profitColor .. sign .. self:FormatPrice(profitData.profit) .. "|r")
+          end
+        end
+      end
+
       directoryFrame.itemPreviewMats:SetText(table.concat(lines, "\n"))
     end
   end
