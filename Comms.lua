@@ -14,7 +14,8 @@ SND.comms = {
   version = 2,
   rate = { window = 5, max = 25 },
   chunkTimeout = 30,
-  fullSyncInterval = 15,  -- Full state rebroadcast every 15s; ChatThrottleLib handles rate safety
+  incrementalSyncInterval = 15,  -- Incremental (dirty-only) broadcast every 15s
+  fullSyncInterval = 120,        -- Full state rebroadcast every 120s as fallback
 }
 
 local function countTableEntries(tbl)
@@ -30,6 +31,26 @@ end
 
 local function debugComms(self, message)
   self:DebugOnlyLog(message)
+end
+
+local function commsError(self, message)
+  self:DebugOnlyLog(message)
+  if self.comms and self.comms.stats then
+    self.comms.stats.errors = self.comms.stats.errors + 1
+  end
+end
+
+-- Compare two semver strings (e.g. "0.4.0" vs "0.10.1").
+-- Returns 1 if a > b, -1 if a < b, 0 if equal.
+local function compareSemver(a, b)
+  local aMaj, aMin, aPat = string.match(tostring(a), "^(%d+)%.(%d+)%.(%d+)")
+  local bMaj, bMin, bPat = string.match(tostring(b), "^(%d+)%.(%d+)%.(%d+)")
+  aMaj, aMin, aPat = tonumber(aMaj) or 0, tonumber(aMin) or 0, tonumber(aPat) or 0
+  bMaj, bMin, bPat = tonumber(bMaj) or 0, tonumber(bMin) or 0, tonumber(bPat) or 0
+  if aMaj ~= bMaj then return aMaj > bMaj and 1 or -1 end
+  if aMin ~= bMin then return aMin > bMin and 1 or -1 end
+  if aPat ~= bPat then return aPat > bPat and 1 or -1 end
+  return 0
 end
 
 local function lwwScore(entry, fallbackId)
@@ -60,6 +81,14 @@ local function incomingWins(incoming, existing, fallbackId)
   end
   return inId > exId
 end
+
+-- Full-state message types: only keep latest per sender during combat queue
+local FULL_STATE_TYPES = {
+  RCP3_FULL = true, REQ_FULL = true, STAT_FULL = true,
+  MAT_FULL = true, PROF_DATA = true,
+}
+
+local COMBAT_QUEUE_CAP = 200
 
 local function normalizeRecipeEntry(entry, recipeSpellID, now, updatedBy)
   if type(entry) ~= "table" then
@@ -106,11 +135,38 @@ function SND:InitComms()
   self.comms.chunkBuffer = {}
   self.comms.guildMemberCache = self.comms.guildMemberCache or {}
   self.comms.guildMemberCacheLastRefresh = tonumber(self.comms.guildMemberCacheLastRefresh) or 0
-  self.comms.pendingCombatMessages = self.comms.pendingCombatMessages or {}
+  self.comms.pendingCombatMessages = {}
+  self.comms.pendingCombatLatest = {}  -- [sender.."|"..msgType] = msgData (dedup full-state types)
   self.comms.inCombat = false
   if self.comms.sendLegacyRecipeChunks == nil then
     self.comms.sendLegacyRecipeChunks = false
   end
+
+  -- Rolling message receive log (timestamps only, for stats display)
+  self.comms.messageLog = {}
+  self.comms.messageLogHead = 0
+  self.comms.messageLogSize = 3600  -- max entries (enough for 1 hour at ~1msg/s)
+
+  -- Per-message-type counters for stats display
+  self.comms.stats = {
+    byType = {},        -- { [messageType] = count } (received)
+    sent = {},          -- { [messageType] = count } (sent)
+    totalSent = 0,      -- total messages sent
+    sendBlocked = 0,    -- sends blocked by combat lockdown
+    rateLimited = 0,    -- messages dropped by rate limiter
+    nonGuild = 0,       -- messages rejected (non-guild sender)
+    combatQueued = 0,   -- messages queued during combat
+    errors = 0,         -- decode/decompress/deserialize failures
+  }
+
+  -- Dirty tracking for incremental sync
+  self.comms.dirty = {
+    recipeIndex = {},   -- { [recipeSpellID] = true }
+    requests = {},      -- { [requestId] = true }
+    craftLog = {},      -- { [logId] = true }
+    professions = false,
+    materials = false,
+  }
 
   self:RefreshGuildMemberCacheFromRoster()
 
@@ -120,61 +176,139 @@ function SND:InitComms()
   end)
   self:RegisterEvent("PLAYER_REGEN_ENABLED", function(selfRef)
     selfRef.comms.inCombat = false
-    -- Process pending messages after combat
-    if #selfRef.comms.pendingCombatMessages > 0 then
-      debugComms(selfRef, string.format("Comms: combat ended, processing %d pending messages", #selfRef.comms.pendingCombatMessages))
-      for _, msgData in ipairs(selfRef.comms.pendingCombatMessages) do
+    -- Merge deduped full-state messages + regular queue
+    local allMessages = {}
+    for _, msgData in pairs(selfRef.comms.pendingCombatLatest) do
+      table.insert(allMessages, msgData)
+    end
+    for _, msgData in ipairs(selfRef.comms.pendingCombatMessages) do
+      table.insert(allMessages, msgData)
+    end
+    selfRef.comms.pendingCombatMessages = {}
+    selfRef.comms.pendingCombatLatest = {}
+
+    if #allMessages == 0 then
+      return
+    end
+
+    debugComms(selfRef, string.format("Comms: combat ended, processing %d pending messages in batches", #allMessages))
+
+    -- Process in batches of 10 per 0.1s tick to avoid frame hitch
+    local batchSize = 10
+    local index = 1
+    local function processBatch()
+      local endIndex = math.min(index + batchSize - 1, #allMessages)
+      for i = index, endIndex do
+        local msgData = allMessages[i]
         selfRef:HandleAddonMessage(msgData.payload, msgData.channel, msgData.sender)
       end
-      selfRef.comms.pendingCombatMessages = {}
+      index = endIndex + 1
+      if index <= #allMessages then
+        selfRef:ScheduleSNDTimer(0.1, processBatch)
+      else
+        -- All done — schedule a coalesced full-state broadcast
+        selfRef.comms.lastFullSyncAt = 0
+        selfRef:ScheduleSNDTimer(2, function()
+          selfRef:BroadcastFullState("post-combat")
+        end)
+      end
     end
+    processBatch()
   end)
 
   self.comms.ace:RegisterComm(self.comms.prefix, function(prefix, payload, channel, sender)
+    -- Record message timestamp for stats
+    local msgLog = self.comms.messageLog
+    self.comms.messageLogHead = (self.comms.messageLogHead % self.comms.messageLogSize) + 1
+    msgLog[self.comms.messageLogHead] = self:Now()
+
     -- Debug: Track message reception
     local messageType = payload and payload:match("^([^|]+)") or "UNKNOWN"
+
+    -- Track per-type message counts
+    local stats = self.comms.stats
+    stats.byType[messageType] = (stats.byType[messageType] or 0) + 1
+
     if self.db and self.db.config and self.db.config.debugMode then
-      debugComms(self, string.format("RX: %s from %s on %s", messageType, tostring(sender), tostring(channel)))
+      debugComms(self, string.format("Comms: RX type=%s from=%s channel=%s", messageType, tostring(sender), tostring(channel)))
     end
 
     -- Combat protection: queue messages during combat
     if InCombatLockdown() then
       self.comms.inCombat = true
-      table.insert(self.comms.pendingCombatMessages, {
-        payload = payload,
-        channel = channel,
-        sender = sender
-      })
+      stats.combatQueued = stats.combatQueued + 1
+      local msgData = { payload = payload, channel = channel, sender = sender }
+      -- Deduplicate full-state types: only keep latest per sender per type
+      if FULL_STATE_TYPES[messageType] then
+        self.comms.pendingCombatLatest[sender .. "|" .. messageType] = msgData
+      else
+        if #self.comms.pendingCombatMessages < COMBAT_QUEUE_CAP then
+          table.insert(self.comms.pendingCombatMessages, msgData)
+        end
+      end
       if self.db and self.db.config and self.db.config.debugMode then
-        debugComms(self, string.format("QUEUED during combat: %s from %s", messageType, tostring(sender)))
+        debugComms(self, string.format("Comms: queued during combat type=%s from=%s", messageType, tostring(sender)))
       end
       return
     end
 
     if not self:PassRateLimit(sender) then
+      stats.rateLimited = stats.rateLimited + 1
       if self.db and self.db.config and self.db.config.debugMode then
-        debugComms(self, string.format("RATE LIMITED: %s from %s", messageType, tostring(sender)))
+        debugComms(self, string.format("Comms: rate limited type=%s from=%s", messageType, tostring(sender)))
       end
       return
     end
     if not self:IsGuildMember(sender) then
+      stats.nonGuild = stats.nonGuild + 1
       if self.db and self.db.config and self.db.config.debugMode then
-        debugComms(self, string.format("NOT GUILD MEMBER: %s from %s", messageType, tostring(sender)))
+        debugComms(self, string.format("Comms: rejected non-guild type=%s from=%s", messageType, tostring(sender)))
       end
       return
     end
     self:HandleAddonMessage(payload, channel, sender)
   end)
 
+  -- Incremental sync ticker: only sends dirty (changed) data every 15s
+  if self.comms.incrementalSyncTicker then
+    self:CancelSNDTimer(self.comms.incrementalSyncTicker)
+  end
+  self.comms.incrementalSyncTicker = self:ScheduleSNDRepeatingTimer(self.comms.incrementalSyncInterval, function()
+    self:BroadcastIncrementalState()
+  end)
+
+  -- Full state fallback ticker: sends everything every 120s for convergence
   if self.comms.fullSyncTicker then
     self:CancelSNDTimer(self.comms.fullSyncTicker)
   end
   self.comms.fullSyncTicker = self:ScheduleSNDRepeatingTimer(self.comms.fullSyncInterval, function()
     self:BroadcastFullState("ticker")
   end)
-  -- Reduced startup delay from 8 to 2 seconds for faster initial sync
+
+  -- Startup: full state after 2 seconds for fast initial sync
   self:ScheduleSNDTimer(2, function()
     self:BroadcastFullState("startup")
+  end)
+
+  -- Periodic cleanup: stale rate limit state (every 5 minutes)
+  self:ScheduleSNDRepeatingTimer(300, function()
+    local now = self:Now()
+    local window = self.comms.rate.window or 5
+    for sender, state in pairs(self.comms.rateState or {}) do
+      if now - (state.start or 0) > window * 2 then
+        self.comms.rateState[sender] = nil
+      end
+    end
+  end)
+
+  -- Periodic cleanup: stale chunk buffers (every 60 seconds)
+  self:ScheduleSNDRepeatingTimer(60, function()
+    local now = self:Now()
+    for key, buf in pairs(self.comms.chunkBuffer or {}) do
+      if now - (buf.receivedAt or 0) > self.comms.chunkTimeout then
+        self.comms.chunkBuffer[key] = nil
+      end
+    end
   end)
 end
 
@@ -219,7 +353,7 @@ function SND:HandleAddonMessage(payload, channel, sender)
     messageType = string.sub(payload, 1, pipeIndex - 1)
   end
   if messageType ~= "RCP" and messageType ~= "RCP_FULL" and messageType ~= "RCP3" and messageType ~= "RCP3_FULL" then
-    self:DebugOnlyLog("RX " .. tostring(channel) .. " " .. tostring(sender) .. " " .. tostring(messageType))
+    debugComms(self, string.format("Comms: received type=%s from=%s channel=%s", tostring(messageType), tostring(sender), tostring(channel)))
   end
 
   if messageType == "HELLO" then
@@ -279,6 +413,7 @@ function SND:BroadcastFullState(reason)
     now + interval
   ))
 
+  self:SendHello()
   self:SendRecipeIndex(true)
   self:SendProfessionData()
   self:SendMatsSnapshot(self:SnapshotSharedMats() or {}, true)
@@ -289,11 +424,207 @@ function SND:BroadcastFullState(reason)
     self:SendCraftLogFullState()
   end
   self.comms.lastFullSyncAt = self:Now()
+  -- Clear dirty state since full state covers everything
+  if self.comms.dirty then
+    self.comms.dirty.recipeIndex = {}
+    self.comms.dirty.requests = {}
+    self.comms.dirty.craftLog = {}
+    self.comms.dirty.professions = false
+    self.comms.dirty.materials = false
+  end
   debugComms(self, string.format(
     "Comms: full-state rebroadcast sent at=%d next=%d",
     self.comms.lastFullSyncAt,
     self.comms.lastFullSyncAt + interval
   ))
+end
+
+function SND:BroadcastIncrementalState()
+  local dirty = self.comms.dirty
+  if not dirty then
+    return
+  end
+
+  local hasDirty = dirty.professions or dirty.materials
+    or next(dirty.recipeIndex) or next(dirty.requests) or next(dirty.craftLog)
+  if not hasDirty then
+    return
+  end
+
+  local sent = {}
+  self:SendHello()
+
+  if dirty.professions then
+    self:SendProfessionData()
+    dirty.professions = false
+    table.insert(sent, "professions")
+  end
+
+  if next(dirty.recipeIndex) then
+    table.insert(sent, string.format("recipes=%d", countTableEntries(dirty.recipeIndex)))
+    self:SendDirtyRecipes(dirty.recipeIndex)
+    dirty.recipeIndex = {}
+  end
+
+  if dirty.materials then
+    self:SendMatsSnapshot(self:SnapshotSharedMats() or {}, false)
+    dirty.materials = false
+    table.insert(sent, "materials")
+  end
+
+  if next(dirty.requests) then
+    table.insert(sent, string.format("requests=%d", countTableEntries(dirty.requests)))
+    self:SendDirtyRequests(dirty.requests)
+    dirty.requests = {}
+  end
+
+  if next(dirty.craftLog) then
+    table.insert(sent, string.format("craftLog=%d", countTableEntries(dirty.craftLog)))
+    self:SendDirtyCraftLog(dirty.craftLog)
+    dirty.craftLog = {}
+  end
+
+  debugComms(self, string.format("Comms: incremental sync sent [%s]", table.concat(sent, ", ")))
+end
+
+function SND:SendDirtyRecipes(dirtySet)
+  local now = self:Now()
+  local updatedBy = self:GetPlayerKey(UnitName("player"))
+  local subset = {}
+  for recipeSpellID in pairs(dirtySet) do
+    local entry = self.db.recipeIndex[recipeSpellID]
+    if entry then
+      normalizeRecipeEntry(entry, recipeSpellID, now, updatedBy)
+      subset[recipeSpellID] = entry
+    end
+  end
+  if not next(subset) then
+    return
+  end
+  local serialized = self.comms.serializer:Serialize(subset)
+  local compressed = self.comms.deflate:CompressDeflate(serialized)
+  local encoded = self.comms.deflate:EncodeForWoWAddonChannel(compressed)
+  self:SendAddonMessage(string.format("RCP3|%s", encoded))
+end
+
+function SND:SendDirtyRequests(dirtySet)
+  for requestId in pairs(dirtySet) do
+    local request = self.db.requests[requestId]
+    if request then
+      local serialized = self.comms.serializer:Serialize({ id = requestId, data = request })
+      local compressed = self.comms.deflate:CompressDeflate(serialized)
+      local encoded = self.comms.deflate:EncodeForWoWAddonChannel(compressed)
+      self:SendAddonMessage(string.format("REQ_UPD|%s", encoded), "ALERT")
+    end
+  end
+end
+
+function SND:SendDirtyCraftLog(dirtySet)
+  for logId in pairs(dirtySet) do
+    local entry = self.db.craftLog and self.db.craftLog[logId]
+    if entry then
+      self:SendCraftLogEntry(entry)
+    end
+  end
+end
+
+function SND:MarkDirty(entityType, entityId)
+  if not self.comms or not self.comms.dirty then
+    return
+  end
+  local dirty = self.comms.dirty
+  if entityType == "professions" then
+    dirty.professions = true
+  elseif entityType == "materials" then
+    dirty.materials = true
+  elseif entityType == "recipeIndex" and entityId then
+    dirty.recipeIndex[entityId] = true
+  elseif entityType == "requests" and entityId then
+    dirty.requests[entityId] = true
+  elseif entityType == "craftLog" and entityId then
+    dirty.craftLog[entityId] = true
+  end
+end
+
+function SND:GetCommsMessageCounts()
+  local now = self:Now()
+  local oneMin, fiveMin, sixtyMin = 0, 0, 0
+  for _, ts in ipairs(self.comms.messageLog or {}) do
+    local age = now - ts
+    if age <= 60 then
+      oneMin = oneMin + 1
+      fiveMin = fiveMin + 1
+      sixtyMin = sixtyMin + 1
+    elseif age <= 300 then
+      fiveMin = fiveMin + 1
+      sixtyMin = sixtyMin + 1
+    elseif age <= 3600 then
+      sixtyMin = sixtyMin + 1
+    end
+  end
+
+  local pendingCombat = #(self.comms.pendingCombatMessages or {})
+  for _ in pairs(self.comms.pendingCombatLatest or {}) do
+    pendingCombat = pendingCombat + 1
+  end
+
+  local chunkBuffers = 0
+  for _ in pairs(self.comms.chunkBuffer or {}) do
+    chunkBuffers = chunkBuffers + 1
+  end
+
+  local dirtyCount = 0
+  local dirty = self.comms.dirty
+  if dirty then
+    if dirty.professions then dirtyCount = dirtyCount + 1 end
+    if dirty.materials then dirtyCount = dirtyCount + 1 end
+    for _ in pairs(dirty.recipeIndex or {}) do dirtyCount = dirtyCount + 1 end
+    for _ in pairs(dirty.requests or {}) do dirtyCount = dirtyCount + 1 end
+    for _ in pairs(dirty.craftLog or {}) do dirtyCount = dirtyCount + 1 end
+  end
+
+  local stats = self.comms.stats or {}
+
+  return {
+    oneMin = oneMin,
+    fiveMin = fiveMin,
+    sixtyMin = sixtyMin,
+    pendingCombat = pendingCombat,
+    chunkBuffers = chunkBuffers,
+    dirtyCount = dirtyCount,
+    byType = stats.byType or {},
+    sent = stats.sent or {},
+    totalSent = stats.totalSent or 0,
+    sendBlocked = stats.sendBlocked or 0,
+    rateLimited = stats.rateLimited or 0,
+    nonGuild = stats.nonGuild or 0,
+    combatQueued = stats.combatQueued or 0,
+    errors = stats.errors or 0,
+  }
+end
+
+function SND:GetPeerStats()
+  local localVersion = self.addonVersion or "0.0.0"
+  local peerVersions = self.comms.peerAddonVersions or {}
+  local totalPeers = 0
+  local onCurrentVersion = 0
+  local byVersion = {}
+
+  for _, ver in pairs(peerVersions) do
+    totalPeers = totalPeers + 1
+    byVersion[ver] = (byVersion[ver] or 0) + 1
+    if ver == localVersion then
+      onCurrentVersion = onCurrentVersion + 1
+    end
+  end
+
+  return {
+    totalPeers = totalPeers,
+    localVersion = localVersion,
+    onCurrentVersion = onCurrentVersion,
+    outdated = totalPeers - onCurrentVersion,
+    byVersion = byVersion,
+  }
 end
 
 function SND:SendHello()
@@ -339,7 +670,7 @@ function SND:SendProfessionData()
   local serialized = self.comms.serializer:Serialize(profData)
   local compressed = self.comms.deflate:CompressDeflate(serialized)
   local encoded = self.comms.deflate:EncodeForWoWAddonChannel(compressed)
-  debugComms(self, string.format("SendProfessionData: player=%s profs=%d encoded=%d", tostring(playerKey), countTableEntries(profData), #encoded))
+  debugComms(self, string.format("Comms: SendProfessionData player=%s profs=%d encoded=%d", tostring(playerKey), countTableEntries(profData), #encoded))
   self:SendAddonMessage(string.format("PROF_DATA|%s", encoded))
 end
 
@@ -351,17 +682,17 @@ function SND:HandleProfessionData(payload, sender)
 
   local decoded = self.comms.deflate:DecodeForWoWAddonChannel(encoded)
   if not decoded then
-    debugComms(self, "HandleProfessionData: decode failed")
+    commsError(self, string.format("Comms: HandleProfessionData decode failed from=%s", tostring(sender)))
     return
   end
   local inflated = self.comms.deflate:DecompressDeflate(decoded)
   if not inflated then
-    debugComms(self, "HandleProfessionData: decompress failed")
+    commsError(self, string.format("Comms: HandleProfessionData decompress failed from=%s", tostring(sender)))
     return
   end
   local ok, profData = self.comms.serializer:Deserialize(inflated)
   if not ok or type(profData) ~= "table" then
-    debugComms(self, "HandleProfessionData: deserialize failed")
+    commsError(self, string.format("Comms: HandleProfessionData deserialize failed from=%s", tostring(sender)))
     return
   end
 
@@ -387,7 +718,7 @@ function SND:HandleProfessionData(payload, sender)
 
   self.db.players[senderKey] = senderEntry
   debugComms(self, string.format(
-    "HandleProfessionData: sender=%s profs=%d",
+    "Comms: HandleProfessionData sender=%s profs=%d",
     tostring(senderKey),
     countTableEntries(senderEntry.professions)
   ))
@@ -396,9 +727,16 @@ end
 function SND:SendAddonMessage(payload, priority)
   -- Combat protection: don't send messages during combat
   if InCombatLockdown() then
+    local stats = self.comms.stats
+    stats.sendBlocked = stats.sendBlocked + 1
     debugComms(self, "Comms: message send blocked during combat")
     return
   end
+  -- Track sent message type
+  local msgType = payload and payload:match("^([^|]+)") or "UNKNOWN"
+  local stats = self.comms.stats
+  stats.sent[msgType] = (stats.sent[msgType] or 0) + 1
+  stats.totalSent = stats.totalSent + 1
   -- Priority: "BULK" (low), "NORMAL" (default), "ALERT" (high/immediate)
   -- Request messages use "ALERT" to bypass throttling for instant updates
   local prio = priority or "NORMAL"
@@ -406,17 +744,35 @@ function SND:SendAddonMessage(payload, priority)
 end
 
 function SND:HandleHello(payload, sender)
-  self:DebugOnlyLog("HELLO from " .. tostring(sender))
+  debugComms(self, string.format("Comms: HELLO received from=%s", tostring(sender)))
 
   -- Parse addon version from HELLO payload: "HELLO|<commsVersion>|<addonVersion>"
   local parts = { strsplit("|", payload) }
+  local remoteCommsVersion = tonumber(parts[2]) or 0
   local remoteAddonVersion = parts[3]
+
+  -- Track peer comms protocol version and addon version
+  local senderKey = self:GetPlayerKey(strsplit("-", sender)) or sender
+  if remoteCommsVersion > 0 then
+    self.comms.peerVersions = self.comms.peerVersions or {}
+    self.comms.peerVersions[senderKey] = remoteCommsVersion
+    if remoteCommsVersion > self.comms.version then
+      debugComms(self, string.format("Comms: peer %s has newer protocol v%d (we have v%d)", tostring(sender), remoteCommsVersion, self.comms.version))
+    end
+  end
+
+  -- Store addon version per peer for stats display
+  self.comms.peerAddonVersions = self.comms.peerAddonVersions or {}
+  if remoteAddonVersion and remoteAddonVersion ~= "" then
+    self.comms.peerAddonVersions[senderKey] = remoteAddonVersion
+  end
+
   if not remoteAddonVersion or remoteAddonVersion == "" then
     return
   end
 
   local localVersion = self.addonVersion or "0.0.0"
-  if remoteAddonVersion > localVersion and not self._versionWarningShown then
+  if compareSemver(remoteAddonVersion, localVersion) > 0 and not self._versionWarningShown then
     self._versionWarningShown = true
     self:Print(string.format(
       "|cffff8000SND Update Available:|r A guild member is running v%s (you have v%s). Please update!",
@@ -426,7 +782,7 @@ function SND:HandleHello(payload, sender)
 end
 
 function SND:HandleProf(payload, sender)
-  self:DebugOnlyLog("PROF from " .. tostring(sender))
+  debugComms(self, string.format("Comms: PROF received from=%s", tostring(sender)))
 end
 
 function SND:HandleRequestMessage(payload, kind, sender)
@@ -437,14 +793,17 @@ function SND:HandleRequestMessage(payload, kind, sender)
 
   local decoded = self.comms.deflate:DecodeForWoWAddonChannel(encoded)
   if not decoded then
+    commsError(self, string.format("Comms: HandleRequestMessage decode failed kind=%s from=%s", kind, tostring(sender)))
     return
   end
   local inflated = self.comms.deflate:DecompressDeflate(decoded)
   if not inflated then
+    commsError(self, string.format("Comms: HandleRequestMessage decompress failed kind=%s from=%s", kind, tostring(sender)))
     return
   end
   local ok, message = self.comms.serializer:Deserialize(inflated)
   if not ok or type(message) ~= "table" then
+    commsError(self, string.format("Comms: HandleRequestMessage deserialize failed kind=%s from=%s", kind, tostring(sender)))
     return
   end
 
@@ -631,14 +990,17 @@ function SND:HandleDeliveryNotification(payload, sender)
 
   local decoded = self.comms.deflate:DecodeForWoWAddonChannel(encoded)
   if not decoded then
+    commsError(self, string.format("Comms: HandleDeliveryNotification decode failed from=%s", tostring(sender)))
     return
   end
   local inflated = self.comms.deflate:DecompressDeflate(decoded)
   if not inflated then
+    commsError(self, string.format("Comms: HandleDeliveryNotification decompress failed from=%s", tostring(sender)))
     return
   end
   local ok, message = self.comms.serializer:Deserialize(inflated)
   if not ok or type(message) ~= "table" then
+    commsError(self, string.format("Comms: HandleDeliveryNotification deserialize failed from=%s", tostring(sender)))
     return
   end
 
@@ -678,18 +1040,22 @@ function SND:HandleMatsMessage(payload, sender)
     return
   end
   if #encoded > 80000 then
+    commsError(self, string.format("Comms: HandleMatsMessage payload too large bytes=%d from=%s", #encoded, tostring(sender)))
     return
   end
   local decoded = self.comms.deflate:DecodeForWoWAddonChannel(encoded)
   if not decoded then
+    commsError(self, string.format("Comms: HandleMatsMessage decode failed from=%s", tostring(sender)))
     return
   end
   local inflated = self.comms.deflate:DecompressDeflate(decoded)
   if not inflated then
+    commsError(self, string.format("Comms: HandleMatsMessage decompress failed from=%s", tostring(sender)))
     return
   end
   local ok, incomingPayload = self.comms.serializer:Deserialize(inflated)
   if not ok or type(incomingPayload) ~= "table" then
+    commsError(self, string.format("Comms: HandleMatsMessage deserialize failed from=%s", tostring(sender)))
     return
   end
   local playerKey = self:GetPlayerKey(strsplit("-", sender))
@@ -727,7 +1093,7 @@ function SND:SendRecipeIndex(isFullState)
   local payload = self:BuildRecipePayload()
   local kind = isFullState and "RCP3_FULL" or "RCP3"
   debugComms(self, string.format(
-    "Publish: recipe index send entries=%d payloadBytes=%d transport=%s full=%s",
+    "Comms: SendRecipeIndex entries=%d payloadBytes=%d transport=%s full=%s",
     countTableEntries(self.db and self.db.recipeIndex),
     payload and #payload or 0,
     "AceComm",
@@ -739,7 +1105,7 @@ function SND:SendRecipeIndex(isFullState)
     local legacyKind = isFullState and "RCP_FULL" or "RCP"
     local chunks = self:ChunkPayload(payload, legacyKind)
     debugComms(self, string.format(
-      "Publish: recipe index legacy-compat send chunks=%d kind=%s",
+      "Comms: SendRecipeIndex legacy chunks=%d kind=%s",
       #chunks,
       tostring(legacyKind)
     ))
@@ -778,30 +1144,30 @@ end
 
 function SND:IngestRecipeIndexPayload(encoded, sender, kind)
   debugComms(self, string.format(
-    "IngestRecipeIndexPayload: ENTER sender=%s kind=%s encoded_len=%d",
+    "Comms: IngestRecipeIndex enter sender=%s kind=%s encodedLen=%d",
     tostring(sender),
     tostring(kind),
     encoded and #encoded or 0
   ))
 
   if type(encoded) ~= "string" or encoded == "" then
-    debugComms(self, "IngestRecipeIndexPayload: ABORT - invalid encoded string")
+    commsError(self, "Comms: IngestRecipeIndex abort invalid encoded string")
     return
   end
 
   if #encoded > 80000 then
-    debugComms(self, string.format("IngestRecipeIndexPayload: ABORT - encoded too large (%d bytes)", #encoded))
+    commsError(self, string.format("Comms: IngestRecipeIndex abort payload too large bytes=%d", #encoded))
     return
   end
 
   local decoded = self.comms.deflate:DecodeForWoWAddonChannel(encoded)
   if not decoded then
-    debugComms(self, "IngestRecipeIndexPayload: ABORT - decode failed")
+    commsError(self, "Comms: IngestRecipeIndex decode failed")
     return
   end
   local inflated = self.comms.deflate:DecompressDeflate(decoded)
   if not inflated then
-    debugComms(self, "IngestRecipeIndexPayload: ABORT - decompress failed")
+    commsError(self, "Comms: IngestRecipeIndex decompress failed")
     return
   end
   local ok, recipeIndex = self.comms.serializer:Deserialize(inflated)
@@ -842,7 +1208,7 @@ function SND:IngestRecipeIndexPayload(encoded, sender, kind)
     end
 
     debugComms(self, string.format(
-      "Ingest: recipe index merge sender=%s kind=%s merged=%d localRecipeIndex=%d",
+      "Comms: IngestRecipeIndex merged sender=%s kind=%s merged=%d total=%d",
       tostring(sender),
       tostring(kind),
       mergedCount,
@@ -880,8 +1246,8 @@ function SND:IngestRecipeIndexPayload(encoded, sender, kind)
       end
     end
   else
-    debugComms(self, string.format(
-      "IngestRecipeIndexPayload: ABORT - deserialize failed (ok=%s type=%s)",
+    commsError(self, string.format(
+      "Comms: IngestRecipeIndex deserialize failed ok=%s type=%s",
       tostring(ok),
       type(recipeIndex)
     ))
@@ -898,7 +1264,7 @@ function SND:HandleRecipeEnvelope(payload, sender)
 
   if not kind or not encoded then
     debugComms(self, string.format(
-      "HandleRecipeEnvelope: pattern match failed for payload from %s (len=%d)",
+      "Comms: HandleRecipeEnvelope pattern match failed from=%s len=%d",
       tostring(sender),
       payload and #payload or 0
     ))
@@ -906,7 +1272,7 @@ function SND:HandleRecipeEnvelope(payload, sender)
   end
 
   debugComms(self, string.format(
-    "HandleRecipeEnvelope: matched kind=%s encoded_len=%d sender=%s",
+    "Comms: HandleRecipeEnvelope kind=%s encodedLen=%d from=%s",
     tostring(kind),
     encoded and #encoded or 0,
     tostring(sender)
@@ -940,8 +1306,8 @@ function SND:HandleRecipeChunk(payload, sender)
   if not buffer then
     buffer = { parts = {}, total = tonumber(total) or 0, receivedAt = self:Now(), receivedCount = 0 }
     self.comms.chunkBuffer[key] = buffer
-    self:DebugOnlyLog(string.format(
-      "RX CHUNK START %s sender=%s msgId=%s total=%d",
+    debugComms(self, string.format(
+      "Comms: chunk start kind=%s from=%s msgId=%s total=%d",
       tostring(kind),
       tostring(sender),
       tostring(msgId),
@@ -973,8 +1339,8 @@ function SND:HandleRecipeChunk(payload, sender)
   local combined = table.concat(buffer.parts, "")
   self.comms.chunkBuffer[key] = nil
 
-  self:DebugOnlyLog(string.format(
-    "RX CHUNK DONE %s sender=%s msgId=%s chunks=%d/%d bytes=%d",
+  debugComms(self, string.format(
+    "Comms: chunk complete kind=%s from=%s msgId=%s chunks=%d/%d bytes=%d",
     tostring(kind),
     tostring(sender),
     tostring(msgId),

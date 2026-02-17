@@ -320,7 +320,8 @@ end
 function SND:GetCraftersForRecipe(recipeSpellID, filters)
   local results = {}
   for playerName, player in pairs(self.db.players) do
-    if player.professions then
+    -- Skip players who have left the guild
+    if not player.leftGuildAt and player.professions then
       for profKey, prof in pairs(player.professions) do
         if prof.recipes and prof.recipes[recipeSpellID] then
           local profName = prof.name or self:GetProfessionNameBySkillLineID(profKey)

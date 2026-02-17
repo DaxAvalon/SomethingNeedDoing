@@ -42,6 +42,9 @@ function SND:RecordCraftLogEntry(requestId, request)
   }
 
   self.db.craftLog[logId] = entry
+  if type(self.MarkDirty) == "function" then
+    self:MarkDirty("craftLog", logId)
+  end
   self:SendCraftLogEntry(entry)
   self:InvalidateStatsCache()
 
@@ -105,11 +108,20 @@ function SND:HandleStatLogMessage(payload, sender)
   end
 
   local decoded = self.comms.deflate:DecodeForWoWAddonChannel(encoded)
-  if not decoded then return end
+  if not decoded then
+    self:DebugOnlyLog(string.format("Stats: HandleStatLogMessage decode failed from=%s", tostring(sender)))
+    return
+  end
   local inflated = self.comms.deflate:DecompressDeflate(decoded)
-  if not inflated then return end
+  if not inflated then
+    self:DebugOnlyLog(string.format("Stats: HandleStatLogMessage decompress failed from=%s", tostring(sender)))
+    return
+  end
   local ok, entry = self.comms.serializer:Deserialize(inflated)
-  if not ok or type(entry) ~= "table" then return end
+  if not ok or type(entry) ~= "table" then
+    self:DebugOnlyLog(string.format("Stats: HandleStatLogMessage deserialize failed from=%s", tostring(sender)))
+    return
+  end
 
   if self:IngestCraftLogEntry(entry) then
     self:RefreshStatsTabIfVisible()
@@ -123,11 +135,20 @@ function SND:HandleStatFullMessage(payload, sender)
   end
 
   local decoded = self.comms.deflate:DecodeForWoWAddonChannel(encoded)
-  if not decoded then return end
+  if not decoded then
+    self:DebugOnlyLog(string.format("Stats: HandleStatFullMessage decode failed from=%s", tostring(sender)))
+    return
+  end
   local inflated = self.comms.deflate:DecompressDeflate(decoded)
-  if not inflated then return end
+  if not inflated then
+    self:DebugOnlyLog(string.format("Stats: HandleStatFullMessage decompress failed from=%s", tostring(sender)))
+    return
+  end
   local ok, message = self.comms.serializer:Deserialize(inflated)
-  if not ok or type(message) ~= "table" then return end
+  if not ok or type(message) ~= "table" then
+    self:DebugOnlyLog(string.format("Stats: HandleStatFullMessage deserialize failed from=%s", tostring(sender)))
+    return
+  end
 
   local craftLog = type(message.craftLog) == "table" and message.craftLog or {}
   local merged = 0
@@ -342,7 +363,7 @@ function SND:PurgeStaleCraftLog()
 
   if removed > 0 then
     self:InvalidateStatsCache()
-    self:DebugLog(string.format("PurgeStaleCraftLog: Removed %d entries older than 6 months", removed), true)
+    self:DebugLog(string.format("Stats: PurgeStaleCraftLog removed=%d (older than 6 months)", removed), true)
   end
 end
 

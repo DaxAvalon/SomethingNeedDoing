@@ -1166,6 +1166,9 @@ function SND:EnsureRecipeIndexEntry(recipeSpellID, skillLineID, outputItemID, me
       entry.updatedAtServer = now
       entry.updatedBy = updatedBy
       entry.lastUpdated = now
+      if type(self.MarkDirty) == "function" then
+        self:MarkDirty("recipeIndex", recipeSpellID)
+      end
       debugScan(self, string.format("Scanner: recipeIndex exists recipeSpellID=%s changed=true", tostring(recipeSpellID)))
     else
       debugScan(self, string.format("Scanner: recipeIndex exists recipeSpellID=%s changed=false", tostring(recipeSpellID)))
@@ -1210,6 +1213,9 @@ function SND:EnsureRecipeIndexEntry(recipeSpellID, skillLineID, outputItemID, me
     updatedBy = updatedBy,
     lastUpdated = now,
   }
+  if type(self.MarkDirty) == "function" then
+    self:MarkDirty("recipeIndex", recipeSpellID)
+  end
   debugScan(self, string.format("Scanner: recipeIndex create recipeSpellID=%s name=%s professionSkillLineID=%s", tostring(recipeSpellID), tostring(self.db.recipeIndex[recipeSpellID].name), tostring(skillLineID)))
 end
 
@@ -1246,6 +1252,10 @@ function SND:DebouncedPublish()
     countTableEntries(self.db and self.db.players),
     countTableEntries(self.db and self.db.recipeIndex)
   ))
+  -- Mark professions dirty for incremental sync
+  if type(self.MarkDirty) == "function" then
+    self:MarkDirty("professions")
+  end
   self:SendProfSummary()
   self:SendRecipeIndex()
 end
@@ -1260,6 +1270,9 @@ function SND:PublishSharedMats()
   end
   local snapshot = self:SnapshotSharedMats()
   if snapshot then
+    if type(self.MarkDirty) == "function" then
+      self:MarkDirty("materials")
+    end
     self:SendMatsSnapshot(snapshot)
     self.scanner.lastMatsPublish = self:Now()
   end

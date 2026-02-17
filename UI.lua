@@ -65,82 +65,6 @@ local function CreateBoundedCheckbox(parent, labelText)
   return box, checkbox
 end
 
-function SND:BuildSharedMatsList(query)
-  local cleaned = string.lower((query or ""):gsub("^%s+", ""):gsub("%s+$", ""))
-  local exclusions = (self.db.config and self.db.config.shareMatsExclusions) or {}
-  local seen = {}
-  local items = {}
-  local maxItems = 200
-
-  for _, entry in pairs(self.db.recipeIndex or {}) do
-    local reagents = entry.reagents
-    if reagents then
-      for itemID in pairs(reagents) do
-        if not seen[itemID] then
-          seen[itemID] = true
-          local name = GetItemInfo(itemID) or ("Item " .. itemID)
-          local count = GetItemCount(itemID, true) or 0
-          local matches = cleaned == "" or string.find(string.lower(name), cleaned, 1, true) or string.find(tostring(itemID), cleaned, 1, true)
-          if matches then
-            table.insert(items, {
-              itemID = itemID,
-              name = name,
-              count = count,
-              excluded = exclusions[itemID] and true or false,
-            })
-          end
-          if #items >= maxItems then
-            table.sort(items, function(a, b)
-              return a.name < b.name
-            end)
-            return items
-          end
-        end
-      end
-    end
-  end
-
-  table.sort(items, function(a, b)
-    return a.name < b.name
-  end)
-  return items
-end
-
-function SND:RefreshSharedMatsList(meFrame)
-  if not meFrame or not meFrame.sharedMatsRows then
-    return
-  end
-  local query = meFrame.sharedMatsSearchBox and meFrame.sharedMatsSearchBox:GetText() or ""
-  local items = self:BuildSharedMatsList(query)
-  local rows = meFrame.sharedMatsRows
-
-  for i, row in ipairs(rows) do
-    local item = items[i]
-    if item then
-      row.itemID = item.itemID
-      row.nameText:SetText(item.name)
-      row.countText:SetText(tostring(item.count))
-      row:SetChecked(not item.excluded)
-      row:Show()
-    else
-      row.itemID = nil
-      row:Hide()
-    end
-  end
-
-  if meFrame.sharedMatsEmptyLabel then
-    if #items == 0 then
-      meFrame.sharedMatsEmptyLabel:Show()
-    else
-      meFrame.sharedMatsEmptyLabel:Hide()
-    end
-  end
-
-  if meFrame.sharedMatsScrollChild then
-    local rowHeight = meFrame.sharedMatsRowHeight or 22
-    meFrame.sharedMatsScrollChild:SetHeight(math.max(#items, #rows) * rowHeight)
-  end
-end
 
 function SND:RefreshScanLogCopyBox(meFrame)
   local editBox = self.scanLogCopyEditBox
@@ -291,7 +215,7 @@ function SND:SelectTab(index)
     return
   end
   if self.TraceScanLog then
-    self:TraceScanLog(string.format("ui-tab: select index=%s", tostring(index)))
+    self:TraceScanLog(string.format("Trace: SelectTab index=%s", tostring(index)))
   end
   self.mainFrame.activeTab = index
   PanelTemplates_SetTab(self.mainFrame, index)
@@ -312,6 +236,12 @@ function SND:SelectTab(index)
     end
   end
 
+  -- Cancel me-tab auto-refresh when leaving tab 4
+  if index ~= 4 and self._meTabRefreshTicker then
+    self:CancelSNDTimer(self._meTabRefreshTicker)
+    self._meTabRefreshTicker = nil
+  end
+
   if index == 2 then
     local requestsFrame = self.mainFrame.contentFrames[2]
     if requestsFrame then
@@ -327,14 +257,28 @@ function SND:SelectTab(index)
     if meFrame then
       self.meTabFrame = meFrame
       if self.TraceScanLog then
-        self:TraceScanLog(string.format("ui-tab: me activated pendingDirty=%s", tostring(self._scanLogPendingDirty)))
+        self:TraceScanLog(string.format("Trace: SelectTab me activated dirty=%s", tostring(self._scanLogPendingDirty)))
       end
       SND:RefreshMeTab(meFrame)
       if self.PushScanLogLineToUI then
-        self:PushScanLogLineToUI("LOG VIEWER READY")
+        self:PushScanLogLineToUI("Trace: ScanLog viewer ready")
       end
       if self._scanLogPendingDirty and self.TraceScanLog then
-        self:TraceScanLog("ui-tab: replay pending dirty scan log")
+        self:TraceScanLog("Trace: SelectTab replay pending dirty")
+      end
+
+      -- Start auto-refresh timer (5s) for stats while tab 4 is visible
+      if not self._meTabRefreshTicker then
+        self._meTabRefreshTicker = self:ScheduleSNDRepeatingTimer(5, function()
+          if self.mainFrame and self.mainFrame:IsShown() and self.mainFrame.activeTab == 4 then
+            self:RefreshMeTab()
+          else
+            if self._meTabRefreshTicker then
+              self:CancelSNDTimer(self._meTabRefreshTicker)
+              self._meTabRefreshTicker = nil
+            end
+          end
+        end)
       end
     end
   end
@@ -1714,165 +1658,33 @@ function SND:CreateMeTab(parent)
   matsSummary:SetJustifyH("LEFT")
   matsSummary:SetText(T("Shared mats contributors: -"))
 
-  local matsListHeader = rightColumn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-  matsListHeader:SetPoint("TOPLEFT", matsSummary, "BOTTOMLEFT", 0, -12)
-  matsListHeader:SetText("Shared mats")
-  matsListHeader:Hide()
+  -- === Database Stats Section ===
+  local dbStatsHeader = rightColumn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+  dbStatsHeader:SetPoint("TOPLEFT", matsSummary, "BOTTOMLEFT", 0, -6)
+  dbStatsHeader:SetText("Database")
 
-  local matsSearchBox = CreateFrame("EditBox", nil, rightColumn, "InputBoxTemplate")
-  matsSearchBox:SetSize(200, 22)
-  matsSearchBox:SetPoint("TOPLEFT", matsListHeader, "BOTTOMLEFT", 0, -6)
-  matsSearchBox:SetAutoFocus(false)
-  matsSearchBox:Hide()
-  matsSearchBox:SetScript("OnEnterPressed", function(edit)
-    edit:ClearFocus()
-    SND:RefreshSharedMatsList(frame)
-  end)
-  matsSearchBox:SetScript("OnTextChanged", function(edit)
-    SND:Debounce("me_mats_search", 0.2, function()
-      if frame.sharedMatsSearchBox == edit then
-        SND:RefreshSharedMatsList(frame)
-      end
-    end)
-  end)
-  matsSearchBox:SetScript("OnEscapePressed", function(edit)
-    edit:ClearFocus()
-  end)
+  local dbStatsText = rightColumn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  dbStatsText:SetPoint("TOPLEFT", dbStatsHeader, "BOTTOMLEFT", 0, -2)
+  dbStatsText:SetJustifyH("LEFT")
+  dbStatsText:SetText("Loading...")
 
-  local listContainer = CreateFrame("Frame", nil, rightColumn, "BackdropTemplate")
-  listContainer:SetPoint("TOPLEFT", matsSearchBox, "BOTTOMLEFT", 0, -6)
-  listContainer:SetSize(300, 220)
-  listContainer:Hide()
-  listContainer:SetBackdrop({
-    bgFile = "Interface/Tooltips/UI-Tooltip-Background",
-    edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
-    edgeSize = 12,
-    insets = { left = 2, right = 2, top = 2, bottom = 2 },
-  })
-  listContainer:SetBackdropColor(0.05, 0.05, 0.08, 1)
+  -- === Comms Stats Section ===
+  local commsStatsHeader = rightColumn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+  commsStatsHeader:SetPoint("TOPLEFT", dbStatsText, "BOTTOMLEFT", 0, -6)
+  commsStatsHeader:SetText("Comms")
 
-  local shareColumnX = 8
-  local itemColumnX = 36
-  local qtyColumnRightX = -12
-
-  local listHeaderShare = listContainer:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-  listHeaderShare:SetPoint("TOPLEFT", shareColumnX, -8)
-  listHeaderShare:SetText("?")
-
-  local listHeaderName = listContainer:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-  listHeaderName:SetPoint("TOPLEFT", itemColumnX, -8)
-  listHeaderName:SetPoint("TOPRIGHT", listContainer, "TOPRIGHT", qtyColumnRightX - 54, -8)
-  listHeaderName:SetJustifyH("LEFT")
-  listHeaderName:SetText("Item")
-
-  local listHeaderCount = listContainer:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-  listHeaderCount:SetPoint("TOPRIGHT", qtyColumnRightX, -8)
-  listHeaderCount:SetJustifyH("Left")
-  listHeaderCount:SetText("Qty")
-
-  local scrollFrame = CreateFrame("ScrollFrame", nil, listContainer, "UIPanelScrollFrameTemplate")
-  scrollFrame:SetPoint("TOPLEFT", 6, -22)
-  scrollFrame:SetPoint("BOTTOMRIGHT", -28, 6)
-
-  local scrollChild = CreateFrame("Frame", nil, scrollFrame)
-  scrollChild:SetSize(250, 200)
-  scrollFrame:SetScrollChild(scrollChild)
-
-  local rows = {}
-  local rowHeight = 22
-  local checkboxSize = 16
-  local checkboxPadding = 6
-  local rowWidth = 240
-  for i = 1, 10 do
-    local row = CreateFrame("CheckButton", nil, scrollChild, "UICheckButtonTemplate")
-    row:SetPoint("TOPLEFT", 0, -(i - 1) * rowHeight)
-    row:SetSize(rowWidth, rowHeight)
-    row.text:SetText("")
-    row.text:Hide()
-    local normalTexture = row:GetNormalTexture()
-    local pushedTexture = row:GetPushedTexture()
-    local highlightTexture = row:GetHighlightTexture()
-    local checkedTexture = row:GetCheckedTexture()
-    local disabledCheckedTexture = row:GetDisabledCheckedTexture()
-    if normalTexture then
-      normalTexture:SetSize(checkboxSize, checkboxSize)
-      normalTexture:ClearAllPoints()
-      normalTexture:SetPoint("LEFT", row, "LEFT", shareColumnX, 0)
-    end
-    if pushedTexture then
-      pushedTexture:SetSize(checkboxSize, checkboxSize)
-      pushedTexture:ClearAllPoints()
-      pushedTexture:SetPoint("LEFT", row, "LEFT", shareColumnX, 0)
-    end
-    if highlightTexture then
-      highlightTexture:SetSize(checkboxSize, checkboxSize)
-      highlightTexture:ClearAllPoints()
-      highlightTexture:SetPoint("LEFT", row, "LEFT", shareColumnX, 0)
-    end
-    if checkedTexture then
-      checkedTexture:SetSize(checkboxSize, checkboxSize)
-      checkedTexture:ClearAllPoints()
-      checkedTexture:SetPoint("LEFT", row, "LEFT", shareColumnX, 0)
-    end
-    if disabledCheckedTexture then
-      disabledCheckedTexture:SetSize(checkboxSize, checkboxSize)
-      disabledCheckedTexture:ClearAllPoints()
-      disabledCheckedTexture:SetPoint("LEFT", row, "LEFT", shareColumnX, 0)
-    end
-
-    local nameText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    nameText:SetPoint("LEFT", row, "LEFT", itemColumnX, 0)
-    nameText:SetPoint("RIGHT", row, "RIGHT", qtyColumnRightX - 54, 0)
-    nameText:SetJustifyH("LEFT")
-
-    local countText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    countText:SetPoint("RIGHT", row, "RIGHT", qtyColumnRightX, 0)
-    countText:SetJustifyH("RIGHT")
-    countText:SetWidth(50)
-
-    row.nameText = nameText
-    row.countText = countText
-    row:SetScript("OnClick", function(btn)
-      if not btn.itemID then
-        return
-      end
-      SND.db.config.shareMatsExclusions = SND.db.config.shareMatsExclusions or {}
-      if btn:GetChecked() then
-        SND.db.config.shareMatsExclusions[btn.itemID] = nil
-      else
-        SND.db.config.shareMatsExclusions[btn.itemID] = true
-      end
-      SND:PublishSharedMats()
-    end)
-    row:SetScript("OnEnter", function(btn)
-      if btn.itemID then
-        GameTooltip:SetOwner(btn, "ANCHOR_RIGHT")
-        GameTooltip:SetHyperlink("item:" .. tostring(btn.itemID))
-        GameTooltip:Show()
-      end
-    end)
-    row:SetScript("OnLeave", function()
-      GameTooltip:Hide()
-    end)
-    row:Hide()
-    rows[i] = row
-  end
-
-  local emptyLabel = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-  emptyLabel:SetPoint("TOPLEFT", 4, -4)
-  emptyLabel:SetText("No shared mats match.")
-  emptyLabel:Hide()
+  local commsStatsText = rightColumn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  commsStatsText:SetPoint("TOPLEFT", commsStatsHeader, "BOTTOMLEFT", 0, -2)
+  commsStatsText:SetJustifyH("LEFT")
+  commsStatsText:SetText("Loading...")
 
   frame.scanStatus = scanStatus
   frame.scanAlertLabel = scanAlertLabel
   frame.professionsList = professionsList
   frame.matsStatus = matsStatus
   frame.matsSummary = matsSummary
-  frame.sharedMatsSearchBox = matsSearchBox
-  frame.sharedMatsRows = rows
-  frame.sharedMatsScrollChild = scrollChild
-  frame.sharedMatsRowHeight = rowHeight
-  frame.sharedMatsEmptyLabel = emptyLabel
+  frame.dbStatsText = dbStatsText
+  frame.commsStatsText = commsStatsText
 
   self.scanLogCopyModal = scanLogCopyModal
   self.scanLogCopyScroll = scanLogCopyScroll

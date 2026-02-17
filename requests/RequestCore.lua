@@ -797,13 +797,15 @@ function SND:GetRecipeReagents(recipeSpellID)
   if recipeEntry and next(reagents) then
     recipeEntry.reagents = reagents
     recipeEntry.lastUpdated = self:Now()
-    --self:DebugLog(string.format("Requests: cached reagents for recipe %s", tostring(recipeSpellID)))
   end
 
   return next(reagents) and reagents or nil
 end
 
 function SND:SendRequestNew(requestId, request)
+  if type(self.MarkDirty) == "function" then
+    self:MarkDirty("requests", requestId)
+  end
   local serialized = self.comms.serializer:Serialize({ id = requestId, data = request })
   local compressed = self.comms.deflate:CompressDeflate(serialized)
   local encoded = self.comms.deflate:EncodeForWoWAddonChannel(compressed)
@@ -812,6 +814,9 @@ function SND:SendRequestNew(requestId, request)
 end
 
 function SND:SendRequestUpdate(requestId, request)
+  if type(self.MarkDirty) == "function" then
+    self:MarkDirty("requests", requestId)
+  end
   local serialized = self.comms.serializer:Serialize({ id = requestId, data = request })
   local compressed = self.comms.deflate:CompressDeflate(serialized)
   local encoded = self.comms.deflate:EncodeForWoWAddonChannel(compressed)
@@ -902,6 +907,9 @@ function SND:DeleteRequest(requestId, reason, source)
 end
 
 function SND:SendRequestDelete(requestId, options)
+  if type(self.MarkDirty) == "function" then
+    self:MarkDirty("requests", requestId)
+  end
   local actorKey = self:GetPlayerKey(UnitName("player"))
   options = options or {}
   local now = self:Now()
@@ -936,10 +944,33 @@ end
 
 function SND:SendRequestFullState()
   self.db.requestTombstones = self.db.requestTombstones or {}
+  local now = self:Now()
+
+  -- Filter out terminal requests older than 24h and tombstones older than 7d
+  local cutoff24h = now - (24 * 60 * 60)
+  local cutoff7d = now - (7 * 24 * 60 * 60)
+
+  local activeRequests = {}
+  for id, req in pairs(self.db.requests) do
+    local isTerminal = (req.status == "DELIVERED" or req.status == "CANCELLED")
+    local ts = tonumber(req.updatedAtServer) or 0
+    if not isTerminal or ts > cutoff24h then
+      activeRequests[id] = req
+    end
+  end
+
+  local activeTombstones = {}
+  for id, tomb in pairs(self.db.requestTombstones) do
+    local ts = tonumber(tomb.deletedAtServer) or 0
+    if ts > cutoff7d then
+      activeTombstones[id] = tomb
+    end
+  end
+
   local payload = {
-    requests = self.db.requests,
-    tombstones = self.db.requestTombstones,
-    updatedAtServer = self:Now(),
+    requests = activeRequests,
+    tombstones = activeTombstones,
+    updatedAtServer = now,
     updatedBy = self:GetPlayerKey(UnitName("player")),
   }
   local serialized = self.comms.serializer:Serialize(payload)

@@ -58,10 +58,10 @@ end
 
 function SND:DebugLog(message, chatWhenDebugMode)
   self:EnsureScanLogBuffer()
-  self:TraceScanLog(string.format("emit: DebugLog message=%s chatWhenDebugMode=%s", tostring(message), tostring(chatWhenDebugMode)))
+  self:TraceScanLog(string.format("Trace: DebugLog emit message=%s chat=%s", tostring(message), tostring(chatWhenDebugMode)))
   self:AppendScanLog(message)
   if chatWhenDebugMode and not (self.db and self.db.config and self.db.config.debugMode) then
-    self:TraceScanLog("emit: chat output skipped (debug mode disabled)")
+    self:TraceScanLog("Trace: DebugLog chat skipped debugMode=false")
     return
   end
   if DEFAULT_CHAT_FRAME then
@@ -76,14 +76,14 @@ end
 
 function SND:RequestScanLogRefresh()
   if self._scanLogRefreshQueued then
-    self:TraceScanLog("refresh-request: skipped (already queued)")
+    self:TraceScanLog("Trace: ScanLog refresh skipped (already queued)")
     return
   end
   self._scanLogRefreshQueued = true
-  self:TraceScanLog("refresh-request: queued")
+  self:TraceScanLog("Trace: ScanLog refresh queued")
   self:ScheduleSNDTimer(0, function()
     self._scanLogRefreshQueued = false
-    self:TraceScanLog("refresh-request: dispatch")
+    self:TraceScanLog("Trace: ScanLog refresh dispatch")
     if type(self.RefreshScanLogBox) == "function" then
       self:RefreshScanLogBox()
     end
@@ -102,7 +102,7 @@ function SND:AppendScanLog(message)
     table.remove(self.scanLogBuffer, 1)
   end
   self._scanLogPendingDirty = true
-  self:TraceScanLog(string.format("buffer-append: lines=%d pendingDirty=%s", #self.scanLogBuffer, tostring(self._scanLogPendingDirty)))
+  self:TraceScanLog(string.format("Trace: ScanLog append lines=%d dirty=%s", #self.scanLogBuffer, tostring(self._scanLogPendingDirty)))
   self:PushScanLogLineToUI(line)
   self:RequestScanLogRefresh()
 end
@@ -130,11 +130,11 @@ end
 
 function SND:GetScanLogText()
   if not self.scanLogBuffer then
-    self:TraceScanLog("buffer-read: lines=0 chars=0")
+    self:TraceScanLog("Trace: ScanLog read lines=0 chars=0")
     return ""
   end
   local text = table.concat(self.scanLogBuffer, "\n")
-  self:TraceScanLog(string.format("buffer-read: lines=%d chars=%d", #self.scanLogBuffer, #text))
+  self:TraceScanLog(string.format("Trace: ScanLog read lines=%d chars=%d", #self.scanLogBuffer, #text))
   return text
 end
 
@@ -143,7 +143,7 @@ function SND:ClearScanLogBuffer()
   wipe(self.scanLogBuffer)
   self._scanLogPendingDirty = true
   self._lastScanLogUiKey = nil
-  self:TraceScanLog("buffer-clear: lines=0")
+  self:TraceScanLog("Trace: ScanLog clear")
   self:RequestScanLogRefresh()
 end
 

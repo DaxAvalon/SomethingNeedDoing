@@ -162,7 +162,7 @@ function SND:MigrateRecipeIndexToPlayerProfessions()
     end
   end
   if cleared > 0 then
-    self:DebugLog(string.format("Migration v2: Cleared profession data for %d remote players (will be repopulated from PROF_DATA)", cleared), true)
+    self:DebugLog(string.format("DB: migration v2 cleared profession data for %d remote players", cleared), true)
   end
 
   -- Audit local player: remove profession entries with invalid keys or empty recipes
@@ -178,7 +178,7 @@ function SND:MigrateRecipeIndexToPlayerProfessions()
       end
     end
     if pruned > 0 then
-      self:DebugLog(string.format("Migration v2: Pruned %d invalid/empty profession entries from local player", pruned), true)
+      self:DebugLog(string.format("DB: migration v2 pruned %d invalid/empty profession entries from local player", pruned), true)
     end
   end
 end
@@ -401,6 +401,45 @@ function SND:PurgeStaleData()
   if type(self.PurgeStaleCraftLog) == "function" then
     self:PurgeStaleCraftLog()
   end
+
+  -- Prune orphaned recipes (no known crafter for 30+ days)
+  self:PruneOrphanedRecipes()
+end
+
+function SND:PruneOrphanedRecipes()
+  local now = self:Now()
+  local cutoff = now - (30 * 24 * 60 * 60)
+  local pruned = 0
+
+  for recipeSpellID, entry in pairs(self.db.recipeIndex) do
+    local hasCrafter = false
+    for _, player in pairs(self.db.players) do
+      if not player.leftGuildAt and player.professions then
+        for _, prof in pairs(player.professions) do
+          if prof.recipes and prof.recipes[recipeSpellID] then
+            hasCrafter = true
+            break
+          end
+        end
+      end
+      if hasCrafter then break end
+    end
+
+    if not hasCrafter then
+      if not entry.orphanedAt then
+        entry.orphanedAt = now
+      elseif entry.orphanedAt < cutoff then
+        self.db.recipeIndex[recipeSpellID] = nil
+        pruned = pruned + 1
+      end
+    else
+      entry.orphanedAt = nil
+    end
+  end
+
+  if pruned > 0 then
+    self:DebugLog(string.format("DB: PruneOrphanedRecipes removed=%d (no known crafters for 30+ days)", pruned), true)
+  end
 end
 
 function SND:CleanInvalidRecipes()
@@ -431,7 +470,7 @@ function SND:CleanInvalidRecipes()
   end
 
   if removed > 0 then
-    self:DebugLog(string.format("CleanInvalidRecipes: Removed %d invalid recipe entries", removed), true)
+    self:DebugLog(string.format("DB: CleanInvalidRecipes removed=%d invalid recipe entries", removed), true)
   end
 
   return removed

@@ -113,14 +113,6 @@ function SND:PromptNewRequest(recipeSpellID, context)
     end
   end
 
-  --self:DebugLog(string.format(
-    --"Request prefill: recipeSpellID=%s recipeName=%s itemID=%s professionSkillLineID=%s professionName=%s",
-    --tostring(prefill.recipeSpellID),
-    --tostring(prefill.recipeName),
-    --tostring(prefill.itemID),
-    --tostring(prefill.professionSkillLineID),
-    --tostring(prefill.professionName)
-  --))
 
   self:ShowRequestModalForRecipe(recipeSpellID, prefill)
 end
@@ -301,7 +293,7 @@ function SND:FilterRequests(requestsFrame)
     })
     local name = resolvedText or ((recipe and recipe.name) or ("Recipe " .. tostring(request.recipeSpellID)))
     local requester = request.requester or ""
-    local recipeProfession = (recipe and (recipe.professionName or recipe.profession)) or ""
+    local recipeProfession = (recipe and self:GetProfessionNameBySkillLineID(recipe.professionSkillLineID)) or ""
     local requesterEntry = self.db.players and self.db.players[requester] or nil
     local requesterOnline = requesterEntry and requesterEntry.online and true or false
     local hasMaterials = not request.needsMats

@@ -61,10 +61,11 @@ function SND:UnregisterEvent(event)
 end
 
 function SND:Initialize()
-  self.addonVersion = GetAddOnMetadata and GetAddOnMetadata(addonName, "Version") or "0.0.0"
+  local getMetadata = GetAddOnMetadata or (C_AddOns and C_AddOns.GetAddOnMetadata)
+  self.addonVersion = getMetadata and getMetadata(addonName, "Version") or "0.0.0"
   self:InitDB()
   self:EnsureScanLogBuffer()
-  self:DebugLog("MARK startup: debug sink initialized", true)
+  self:DebugLog("Core: startup debug sink initialized", true)
   self:InitUI()
   self:InitComms()
   self:InitRoster()
@@ -76,6 +77,10 @@ function SND:Initialize()
   self:RegisterSlashCommands()
   self:SendHello()
   self:PurgeStaleData()
+  -- Run PurgeStaleData periodically (every 30 minutes)
+  self:ScheduleSNDRepeatingTimer(1800, function()
+    self:PurgeStaleData()
+  end)
 end
 
 function SND:OnInitialize()
@@ -170,11 +175,44 @@ function SND:WhisperCrafter(recipeSpellID)
   end
 end
 
+function SND:GetDatabaseStats()
+  local totalPlayers, onlinePlayers = 0, 0
+  for _, player in pairs(self.db.players or {}) do
+    totalPlayers = totalPlayers + 1
+    if player.online then onlinePlayers = onlinePlayers + 1 end
+  end
+
+  local recipesByProfession = {}
+  for _, entry in pairs(self.db.recipeIndex or {}) do
+    local profID = entry.professionSkillLineID
+    local profName = profID and self:GetProfessionNameBySkillLineID(profID) or "Unknown"
+    recipesByProfession[profName] = (recipesByProfession[profName] or 0) + 1
+  end
+
+  local totalRequests = 0
+  for _ in pairs(self.db.requests or {}) do
+    totalRequests = totalRequests + 1
+  end
+
+  local craftLogEntries = 0
+  for _ in pairs(self.db.craftLog or {}) do
+    craftLogEntries = craftLogEntries + 1
+  end
+
+  return {
+    totalPlayers = totalPlayers,
+    onlinePlayers = onlinePlayers,
+    recipesByProfession = recipesByProfession,
+    totalRequests = totalRequests,
+    craftLogEntries = craftLogEntries,
+  }
+end
+
 function SND:RefreshMeTab(meFrame)
   meFrame = meFrame or self.meTabFrame or (self.mainFrame and self.mainFrame.contentFrames and self.mainFrame.contentFrames[4])
   if not meFrame or not meFrame.scanStatus or not meFrame.professionsList then
     if self.TraceScanLog then
-      self:TraceScanLog("ui-refresh: RefreshMeTab skipped (me frame unavailable)")
+      self:TraceScanLog("Trace: RefreshMeTab skipped (frame unavailable)")
     end
     return
   end
@@ -182,7 +220,7 @@ function SND:RefreshMeTab(meFrame)
   self.meTabFrame = meFrame
 
   if self.TraceScanLog then
-    self:TraceScanLog("ui-refresh: RefreshMeTab begin")
+    self:TraceScanLog("Trace: RefreshMeTab begin")
   end
 
   self:RefreshScanLogBox()
@@ -198,17 +236,17 @@ function SND:RefreshMeTab(meFrame)
   local entry = self.db.players[playerKey]
   if not entry or not entry.professions then
     meFrame.professionsList:SetText(self:Tr("Professions: -"))
-    return
-  end
-  local lines = {}
-  for _, prof in pairs(entry.professions) do
-    table.insert(lines, string.format("%s %d/%d", prof.name or "", prof.rank or 0, prof.maxRank or 0))
-  end
-  table.sort(lines)
-  if #lines == 0 then
-    meFrame.professionsList:SetText(self:Tr("Professions: -"))
   else
-    meFrame.professionsList:SetText(self:Tr("Professions: %s", table.concat(lines, " | ")))
+    local profLines = {}
+    for _, prof in pairs(entry.professions) do
+      table.insert(profLines, string.format("%s %d/%d", prof.name or "", prof.rank or 0, prof.maxRank or 0))
+    end
+    table.sort(profLines)
+    if #profLines == 0 then
+      meFrame.professionsList:SetText(self:Tr("Professions: -"))
+    else
+      meFrame.professionsList:SetText(self:Tr("Professions: %s", table.concat(profLines, " | ")))
+    end
   end
 
   if meFrame.matsStatus then
@@ -234,8 +272,70 @@ function SND:RefreshMeTab(meFrame)
     end
   end
 
-  if meFrame.sharedMatsSearchBox then
-    self:RefreshSharedMatsList(meFrame)
+  if meFrame.dbStatsText then
+    local dbStats = self:GetDatabaseStats()
+    local ps = self:GetPeerStats()
+    local lines = {
+      string.format("Players: %d (%d online)", dbStats.totalPlayers, dbStats.onlinePlayers),
+      string.format("Requests: %d  |  Craft Log: %d", dbStats.totalRequests, dbStats.craftLogEntries),
+    }
+    -- Recipes by profession
+    local profList = {}
+    for name, count in pairs(dbStats.recipesByProfession) do
+      table.insert(profList, { name = name, count = count })
+    end
+    table.sort(profList, function(a, b) return a.name < b.name end)
+    for _, prof in ipairs(profList) do
+      table.insert(lines, string.format("  %s: %d", prof.name, prof.count))
+    end
+    -- Peer addon versions
+    table.insert(lines, string.format("Addon peers: %d  |  v%s (you): %d  |  Other: %d",
+      ps.totalPeers, ps.localVersion, ps.onCurrentVersion, ps.outdated))
+    local verList = {}
+    for ver, count in pairs(ps.byVersion) do
+      if ver ~= ps.localVersion then
+        table.insert(verList, { ver = ver, count = count })
+      end
+    end
+    table.sort(verList, function(a, b) return a.ver > b.ver end)
+    for _, v in ipairs(verList) do
+      table.insert(lines, string.format("  v%s: %d", v.ver, v.count))
+    end
+    meFrame.dbStatsText:SetText(table.concat(lines, "\n"))
+  end
+
+  if meFrame.commsStatsText then
+    local cs = self:GetCommsMessageCounts()
+    local lines = {
+      string.format("Received: %d (1m) / %d (5m) / %d (60m)",
+        cs.oneMin, cs.fiveMin, cs.sixtyMin),
+    }
+    -- Per-type RX breakdown sorted by count descending
+    local rxList = {}
+    for msgType, count in pairs(cs.byType) do
+      table.insert(rxList, { name = msgType, count = count })
+    end
+    table.sort(rxList, function(a, b) return a.count > b.count end)
+    for _, entry in ipairs(rxList) do
+      table.insert(lines, string.format("  %s: %d", entry.name, entry.count))
+    end
+    -- Sent stats
+    table.insert(lines, string.format("Sent: %d total", cs.totalSent))
+    local txList = {}
+    for msgType, count in pairs(cs.sent) do
+      table.insert(txList, { name = msgType, count = count })
+    end
+    table.sort(txList, function(a, b) return a.count > b.count end)
+    for _, entry in ipairs(txList) do
+      table.insert(lines, string.format("  %s: %d", entry.name, entry.count))
+    end
+    -- Status counters
+    table.insert(lines, string.format("Rate limited: %d  |  Non-guild: %d  |  Errors: %d",
+      cs.rateLimited, cs.nonGuild, cs.errors))
+    table.insert(lines, string.format("Combat queued: %d  |  Send blocked: %d  |  Dirty: %d",
+      cs.combatQueued, cs.sendBlocked, cs.dirtyCount))
+    table.insert(lines, string.format("Chunk buffers: %d", cs.chunkBuffers))
+    meFrame.commsStatsText:SetText(table.concat(lines, "\n"))
   end
 end
 
@@ -248,7 +348,7 @@ function SND:RefreshScanLogBox()
   self._scanLogPendingDirty = false
   local uiLogKey = string.format("%d|%d", totalLines, maxLines)
   if self._lastScanLogUiKey ~= uiLogKey and self.TraceScanLog then
-    self:TraceScanLog(string.format("MARK ui-write: lines=%d replayStart=%d", totalLines, startIndex))
+    self:TraceScanLog(string.format("Trace: ScanLog ui-write lines=%d start=%d", totalLines, startIndex))
   end
   self._lastScanLogUiKey = uiLogKey
 
