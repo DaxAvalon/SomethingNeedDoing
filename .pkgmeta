@@ -24,3 +24,7 @@ ignore:
   - .github
   - README.md
   - .editorconfig
+  - libs/Ace3/tests
+  - libs/LibDeflate/tests
+  - libs/LibDeflate/docs
+  - libs/LibDeflate/examples
