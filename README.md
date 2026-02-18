@@ -1,5 +1,9 @@
 # Something Need Doing
 
+[![Lint](https://github.com/a-hadley/SomethingNeedDoing/actions/workflows/lint.yml/badge.svg)](https://github.com/a-hadley/SomethingNeedDoing)
+[![Release](https://img.shields.io/github/v/release/a-hadley/SomethingNeedDoing.svg?color=important)](https://github.com/a-hadley/SomethingNeedDoing/releases)
+[![Issues](https://img.shields.io/github/issues/a-hadley/SomethingNeedDoing?color=blue)](https://github.com/a-hadley/SomethingNeedDoing/issues)
+
 A guild-wide profession directory and craft request board for World of Warcraft Classic.
 
 All guild members running the addon automatically share their crafting recipes, forming a searchable directory. Members can post craft requests, claim jobs, track materials, and see leaderboards — all synced in real time across the guild.
