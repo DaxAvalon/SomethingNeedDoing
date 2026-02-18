@@ -167,6 +167,17 @@ function SND:SearchRecipes(query, filters)
         shouldSkip = true
       end
 
+      -- Filter by recipe's own profession (defense-in-depth alongside crafter-level filter)
+      if not shouldSkip and filters and filters.professionName and filters.professionName ~= "All" then
+        local recipeProfID = recipe.professionSkillLineID
+        if recipeProfID then
+          local recipeProfName = self:GetProfessionNameBySkillLineID(recipeProfID)
+          if recipeProfName and recipeProfName ~= filters.professionName then
+            shouldSkip = true
+          end
+        end
+      end
+
       if not shouldSkip then
         local crafters = self:GetCraftersForRecipe(recipeSpellID, filters)
         local count = #crafters
@@ -219,6 +230,17 @@ function SND:SearchRecipes(query, filters)
       -- Skip BoP output items the local player can't craft (untradeable)
       if not shouldSkip and self:IsRecipeOutputBoP(recipeSpellID) and not self:CanPlayerCraftRecipe(recipeSpellID) then
         shouldSkip = true
+      end
+
+      -- Filter by recipe's own profession (defense-in-depth alongside crafter-level filter)
+      if not shouldSkip and filters and filters.professionName and filters.professionName ~= "All" then
+        local recipeProfID = recipe.professionSkillLineID
+        if recipeProfID then
+          local recipeProfName = self:GetProfessionNameBySkillLineID(recipeProfID)
+          if recipeProfName and recipeProfName ~= filters.professionName then
+            shouldSkip = true
+          end
+        end
       end
 
       if not shouldSkip then
@@ -326,25 +348,29 @@ function SND:GetCraftersForRecipe(recipeSpellID, filters)
         if prof.recipes and prof.recipes[recipeSpellID] then
           local profName = prof.name or self:GetProfessionNameBySkillLineID(profKey)
 
-          -- Check if player has shared materials for this recipe
-          local hasSharedMats = player.sharedMats and self:HasSharedMatsForRecipe(player.sharedMats, recipeSpellID) or false
-
-          -- Apply filters
+          -- Check if this profession matches the filter
           local professionMatch = not filters or not filters.professionName or filters.professionName == "All" or filters.professionName == profName
-          local onlineMatch = not filters or not filters.onlineOnly or player.online
-          local sharedMatsMatch = not filters or not filters.sharedMatsOnly or hasSharedMats
 
-          if professionMatch and onlineMatch and sharedMatsMatch then
-            table.insert(results, {
-              name = playerName,
-              online = player.online,
-              profession = profName,
-              rank = prof.rank,
-              maxRank = prof.maxRank,
-              hasSharedMats = hasSharedMats,
-            })
+          if professionMatch then
+            -- Right profession found — apply remaining filters and break
+            local hasSharedMats = player.sharedMats and self:HasSharedMatsForRecipe(player.sharedMats, recipeSpellID) or false
+            local onlineMatch = not filters or not filters.onlineOnly or player.online
+            local sharedMatsMatch = not filters or not filters.sharedMatsOnly or hasSharedMats
+
+            if onlineMatch and sharedMatsMatch then
+              table.insert(results, {
+                name = playerName,
+                online = player.online,
+                profession = profName,
+                rank = prof.rank,
+                maxRank = prof.maxRank,
+                hasSharedMats = hasSharedMats,
+              })
+            end
+            break  -- Correct profession found, stop checking this player
           end
-          break  -- Count each player only once (they may have recipe on multiple professions)
+          -- Profession doesn't match filter — keep looking in case the recipe
+          -- also exists under the filtered profession (data consistency issue)
         end
       end
     end

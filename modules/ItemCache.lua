@@ -73,11 +73,9 @@ function SND:InitItemCache()
   end)
 
   -- Schedule periodic cleanup (every 60 seconds) to remove stale pending items
-  if self.ScheduleRepeatingTimer then
-    self:ScheduleRepeatingTimer(function()
-      self:CleanupItemCache()
-    end, 60)
-  end
+  self:ScheduleSNDRepeatingTimer(60, function()
+    self:CleanupItemCache()
+  end)
 
 end
 
