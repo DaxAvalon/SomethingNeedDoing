@@ -294,8 +294,6 @@ function SND:FilterRequests(requestsFrame)
     local name = resolvedText or ((recipe and recipe.name) or ("Recipe " .. tostring(request.recipeSpellID)))
     local requester = request.requester or ""
     local recipeProfession = (recipe and self:GetProfessionNameBySkillLineID(recipe.professionSkillLineID)) or ""
-    local requesterEntry = self.db.players and self.db.players[requester] or nil
-    local requesterOnline = requesterEntry and requesterEntry.online and true or false
     local hasMaterials = not request.needsMats
 
     local queryMatch = (query == "")
@@ -303,12 +301,18 @@ function SND:FilterRequests(requestsFrame)
       or string.find(string.lower(requester), query, 1, true)
 
     local professionMatch = (professionFilter == "All") or (professionFilter == recipeProfession)
-    local onlineMatch = (not requestsFrame.onlyMine) or requesterOnline
+    local viewMode = requestsFrame.viewMode or "ALL"
+    local viewMatch = true
+    if viewMode == "MY_REQUESTS" then
+      viewMatch = (request.requester == localPlayerKey)
+    elseif viewMode == "MY_CLAIMS" then
+      viewMatch = (request.claimedBy == localPlayerKey)
+    end
     local hasMaterialsMatch = (not requestsFrame.hasMaterialsOnly) or hasMaterials
 
     if requestsFrame.statusFilter == "ALL" or request.status == requestsFrame.statusFilter then
       if not requestsFrame.onlyClaimable or request.status == "OPEN" then
-        if queryMatch and professionMatch and onlineMatch and hasMaterialsMatch then
+        if queryMatch and professionMatch and viewMatch and hasMaterialsMatch then
           -- Hide BoP requests from players who can't craft them
           -- (always show to the requester themselves)
           local bopVisible = true
@@ -378,6 +382,12 @@ function SND:SelectRequest(requestsFrame, requestId)
     if requestsFrame.detailItemIcon then
       requestsFrame.detailItemIcon:SetTexture("Interface/Icons/INV_Misc_QuestionMark")
     end
+    if requestsFrame.detailTip then
+      requestsFrame.detailTip:Hide()
+    end
+    if requestsFrame.detailPreferredCrafter then
+      requestsFrame.detailPreferredCrafter:Hide()
+    end
     if requestsFrame.statusLine then
       requestsFrame.statusLine:SetText("Status: -")
     end
@@ -427,6 +437,26 @@ function SND:SelectRequest(requestsFrame, requestId)
   if requestsFrame.detailRequester then
     requestsFrame.detailRequester:SetText(string.format("Requested by: %s", requesterShort))
   end
+
+  if requestsFrame.detailTip then
+    if request.offeredTip and request.offeredTip > 0 then
+      requestsFrame.detailTip:SetText(string.format("|cffFFD700Tip:|r %s", self:FormatPrice(request.offeredTip)))
+      requestsFrame.detailTip:Show()
+    else
+      requestsFrame.detailTip:Hide()
+    end
+  end
+
+  if requestsFrame.detailPreferredCrafter then
+    if request.preferredCrafter and request.preferredCrafter ~= "" then
+      local shortName = request.preferredCrafter:match("^[^%-]+") or request.preferredCrafter
+      requestsFrame.detailPreferredCrafter:SetText("|cff00ccffPreferred Crafter:|r " .. shortName)
+      requestsFrame.detailPreferredCrafter:Show()
+    else
+      requestsFrame.detailPreferredCrafter:Hide()
+    end
+  end
+
   local claimer = request.claimedBy or "-"
   local createdAt = request.createdAt and date("%Y-%m-%d %H:%M", request.createdAt) or "-"
   local updatedAt = request.updatedAt and date("%Y-%m-%d %H:%M", request.updatedAt) or "-"

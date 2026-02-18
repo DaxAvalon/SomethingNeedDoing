@@ -186,6 +186,19 @@ function SND:NormalizeRequestData(request)
     end
   end
 
+  if request.offeredTip ~= nil then
+    request.offeredTip = tonumber(request.offeredTip)
+    if not request.offeredTip or request.offeredTip <= 0 then
+      request.offeredTip = nil
+    end
+  end
+
+  if request.preferredCrafter ~= nil then
+    if type(request.preferredCrafter) ~= "string" or request.preferredCrafter == "" then
+      request.preferredCrafter = nil
+    end
+  end
+
   local now = self:Now()
   applyRequestMeta(self, request, now)
 
@@ -231,6 +244,16 @@ function SND:CreateRequest(recipeSpellID, qty, notes, options)
     end
   end
 
+  local offeredTip = nil
+  if type(options.offeredTip) == "number" and options.offeredTip > 0 then
+    offeredTip = math.floor(options.offeredTip)
+  end
+
+  local preferredCrafter = nil
+  if type(options.preferredCrafter) == "string" and options.preferredCrafter ~= "" then
+    preferredCrafter = options.preferredCrafter
+  end
+
   local request = {
     id = requestId,
     entityType = "REQUEST",
@@ -250,6 +273,8 @@ function SND:CreateRequest(recipeSpellID, qty, notes, options)
     version = 1,
     deletedAtServer = nil,
     requesterMatsSnapshot = self:SnapshotMats(recipeSpellID, normalizedQty),
+    offeredTip = offeredTip,
+    preferredCrafter = preferredCrafter,
   }
 
   self:NormalizeRequestData(request)

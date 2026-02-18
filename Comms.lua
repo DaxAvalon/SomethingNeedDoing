@@ -919,7 +919,14 @@ function SND:HandleRequestMessage(payload, kind, sender)
     if incomingWins(message.data, tomb or existing, message.id) then
       self.db.requests[message.id] = message.data
       if kind == "REQ_NEW" and type(self.ShowIncomingRequestPopup) == "function" then
-        self:ShowIncomingRequestPopup(message.id, message.data, sender)
+        local showPopup = true
+        if message.data.preferredCrafter and message.data.preferredCrafter ~= "" then
+          local localPlayerKey = self:GetPlayerKey(UnitName("player"))
+          showPopup = (message.data.preferredCrafter == localPlayerKey)
+        end
+        if showPopup then
+          self:ShowIncomingRequestPopup(message.id, message.data, sender)
+        end
       end
 
       -- Record craft log entry when a remote DELIVERED status comes in
@@ -930,6 +937,13 @@ function SND:HandleRequestMessage(payload, kind, sender)
       -- Notify if this is a new request for a recipe the local player knows
       if kind == "REQ_NEW" and message.data.recipeSpellID then
         local localPlayerKey = self:GetPlayerKey(UnitName("player"))
+
+        -- Skip chat notification if preferred crafter is set and it's not us
+        local preferredMatch = true
+        if message.data.preferredCrafter and message.data.preferredCrafter ~= "" then
+          preferredMatch = (message.data.preferredCrafter == localPlayerKey)
+        end
+
         local localPlayer = self.db.players[localPlayerKey]
         local canCraft = false
 
@@ -944,7 +958,7 @@ function SND:HandleRequestMessage(payload, kind, sender)
 
         -- Notify user if notifications enabled and not in combat
         local showNotifications = self.db and self.db.config and self.db.config.showNotifications
-        if canCraft and showNotifications and not InCombatLockdown() then
+        if canCraft and preferredMatch and showNotifications and not InCombatLockdown() then
           local recipeName = self:GetRecipeOutputItemName(message.data.recipeSpellID)
           if not recipeName and self.db.recipeIndex[message.data.recipeSpellID] then
             recipeName = self.db.recipeIndex[message.data.recipeSpellID].name

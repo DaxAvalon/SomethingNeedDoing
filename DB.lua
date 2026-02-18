@@ -38,6 +38,7 @@ local DEFAULT_DB = {
       requests = {
         professionFilter = "All",
         statusFilter = "ALL",
+        viewMode = "ALL",
         onlyMine = false,
         onlyClaimable = false,
         hasMaterialsOnly = false,

@@ -6,39 +6,60 @@
 
 A guild-wide profession directory and craft request board for World of Warcraft Classic.
 
-All guild members running the addon automatically share their crafting recipes, forming a searchable directory. Members can post craft requests, claim jobs, track materials, and see leaderboards — all synced in real time across the guild.
+## Overview
+
+Something Need Doing is a guild-first crafting coordinator built to replace the usual chaos of guild chat and whispers. Every guild member running the addon automatically shares their known recipes, building a live, searchable directory of who can craft what. Instead of asking around each time someone needs an enchant, gem, or piece of gear, members can look up crafters instantly and submit a structured request right from the directory.
+
+Crafters see incoming demand at a glance, claim jobs, and move them through a clear lifecycle — Open, Claimed, Crafted, Delivered — so nothing falls through the cracks. Requesters get notified when their item is ready. Officers and guild masters have moderation tools to keep the board tidy.
+
+The addon also tracks guild crafting activity over time. A built-in leaderboard ranks crafters by output across weekly, monthly, and all-time windows, and a searchable craft history log keeps a record of every completed request.
+
+If you have **Auctionator** or **TSM** installed with recent auction data, the directory will show estimated material costs, output item values, and profit margins for each recipe — handy for pricing guild crafts or deciding what to make next.
+
+All data syncs automatically between guild members in the background. No server, no website, no setup beyond installing the addon.
 
 ## Features
 
 ### Guild Recipe Directory
 - Searchable catalog of every recipe known by guild members
-- Filter by profession, online status, or shared material availability
-- See which crafters know a recipe, their skill level, and online status
-- View required materials and item tooltips
-- One-click whisper to a crafter with pre-filled request context
+- Filter by profession, crafter online status, material availability, or item rarity
+- Sort by name, rarity, or item level
+- See which crafters know a recipe, their skill level, and whether they're online
+- View required materials, item tooltips, and cost breakdowns
+- One-click whisper to a crafter or create a request directly from the directory
 
 ### Craft Request Board
 - Post requests for items you need crafted
 - Full lifecycle tracking: Open → Claimed → Crafted → Delivered
-- Material snapshots and inline notes
+- Material snapshots and inline notes on every request
 - Role-based permissions (requester, crafter, officer, guild master)
-- Audit trail of all status changes
+- Delivery notifications and audit trail of all status changes
+- Offered tip field to set gold expectations for crafters
+- Preferred crafter selection to direct requests to a specific guild member
+- Filter by "My Requests", "My Claims", or all requests
+- Search and filter by profession, status, or materials
 
 ### Statistics & Leaderboards
-- Crafter performance rankings (all-time, monthly, weekly)
-- Filter stats by profession
-- Track craft log entries and request volume
+- Crafter performance rankings across all-time, monthly, and weekly windows
+- Filter leaderboard by profession
+- Searchable craft history log with item and crafter details
+- Personal stats summary showing your totals and top profession
 
 ### Shared Materials
 - Opt-in system for guild members to share available crafting materials
 - Directory shows which crafters have materials on hand
 - Material availability tracked in request details
 
+### Auction House Pricing
+- Supports both Auctionator and TSM as price sources
+- Shows per-material cost, total craft cost, output item value, and estimated profit
+- Prices displayed in familiar gold/silver/copper format
+
 ### Real-Time Sync
-- Peer-to-peer eventual consistency across all guild members
-- Incremental sync (dirty-only updates) with full rebroadcast fallback
+- Peer-to-peer sync across all guild members — no external server needed
+- Incremental updates with full rebroadcast fallback
 - Combat-aware message queuing to prevent disconnects
-- Compressed messages via LibDeflate with rate limiting
+- Compressed messages with rate limiting
 
 ## Installation
 
@@ -117,7 +138,7 @@ SomethingNeedDoing/
 ├── stats/
 │   ├── StatsCore.lua     # Craft log, statistics aggregation
 │   └── StatsUI.lua       # Analytics panel rendering
-└── libs/                 # Bundled libraries
+└── libs/                 # External libraries (pulled by CurseForge packager)
     ├── Ace3/             # AceAddon, AceEvent, AceComm, AceDB, AceGUI, etc.
     ├── LibDBIcon-1.0/    # Minimap button support
     ├── LibDeflate/       # Message compression
@@ -184,7 +205,7 @@ The CurseForge webhook picks up the tag push and builds the release automaticall
 
 ## Version
 
-**Current:** 0.5.0
+**Current:** 0.6.0
 **WoW Interface:** 20504, 20505 (Classic)
 **Author:** Ariailis-Dreamscythe &lt;All Gear No Fear&gt;
 

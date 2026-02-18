@@ -916,6 +916,7 @@ function SND:CreateRequestsTab(parent)
   local savedReqFilters = SND.db.config.filters.requests
   frame.professionFilter = savedReqFilters.professionFilter or "All"
   frame.statusFilter = savedReqFilters.statusFilter or "ALL"
+  frame.viewMode = savedReqFilters.viewMode or "ALL"
   frame.onlyMine = savedReqFilters.onlyMine or false
   frame.onlyClaimable = savedReqFilters.onlyClaimable or false
   frame.hasMaterialsOnly = savedReqFilters.hasMaterialsOnly or false
@@ -935,19 +936,44 @@ function SND:CreateRequestsTab(parent)
   local statusDrop = CreateFrame("Frame", "SNDRequestStatusDropDown", filterBar, "UIDropDownMenuTemplate")
   statusDrop:SetPoint("TOPLEFT", statusLabel, "BOTTOMLEFT", -18, 0)
 
-  -- OnlyMine
-  local onlyMineBox, onlyMine = CreateBoundedCheckbox(filterBar, T("My Requests"))
-  onlyMineBox:SetPoint("LEFT", professionDrop, "RIGHT", 0, 12)
-  onlyMine:SetChecked(frame.onlyMine)
-  onlyMine:SetScript("OnClick", function(btn)
-    frame.onlyMine = btn:GetChecked() and true or false
-    SND.db.config.filters.requests.onlyMine = frame.onlyMine
-    SND:RefreshRequestList(frame)
+  -- View mode dropdown (replaces old "My Requests" checkbox)
+  local viewLabel = filterBar:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+  viewLabel:SetPoint("TOPLEFT", professionLabel, "TOPRIGHT", 140, 0)
+  viewLabel:SetText("View")
+
+  local viewDrop = CreateFrame("Frame", "SNDRequestViewDropDown", filterBar, "UIDropDownMenuTemplate")
+  viewDrop:SetPoint("TOPLEFT", viewLabel, "BOTTOMLEFT", -18, 0)
+
+  local viewOptions = {
+    { text = "All Requests", value = "ALL" },
+    { text = "My Requests", value = "MY_REQUESTS" },
+    { text = "My Claims", value = "MY_CLAIMS" },
+  }
+
+  UIDropDownMenu_Initialize(viewDrop, function(_, level, menuList)
+    for _, option in ipairs(viewOptions) do
+      local info = UIDropDownMenu_CreateInfo()
+      info.text = option.text
+      info.checked = option.value == frame.viewMode
+      info.func = function()
+        frame.viewMode = option.value
+        SND.db.config.filters.requests.viewMode = option.value
+        UIDropDownMenu_SetText(viewDrop, option.text)
+        SND:RefreshRequestList(frame)
+      end
+      UIDropDownMenu_AddButton(info, level)
+    end
   end)
+  UIDropDownMenu_SetWidth(viewDrop, 120)
+  local viewInitText = "All Requests"
+  for _, opt in ipairs(viewOptions) do
+    if opt.value == frame.viewMode then viewInitText = opt.text break end
+  end
+  UIDropDownMenu_SetText(viewDrop, viewInitText)
 
   -- Unclaimed only
   local onlyClaimableBox, onlyClaimable = CreateBoundedCheckbox(filterBar, "Unclaimed Only")
-  onlyClaimableBox:SetPoint("LEFT", onlyMineBox, "LEFT", 0, -28)
+  onlyClaimableBox:SetPoint("LEFT", viewDrop, "RIGHT", 0, 12)
   onlyClaimable:SetChecked(frame.onlyClaimable)
   onlyClaimable:SetScript("OnClick", function(btn)
     frame.onlyClaimable = btn:GetChecked() and true or false
@@ -1055,8 +1081,20 @@ function SND:CreateRequestsTab(parent)
   detailRequester:SetJustifyH("LEFT")
   detailRequester:SetText("")
 
+  local detailTip = detailContainer:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+  detailTip:SetPoint("TOPLEFT", detailRequester, "BOTTOMLEFT", 0, -4)
+  detailTip:SetPoint("RIGHT", -4, 0)
+  detailTip:SetJustifyH("LEFT")
+  detailTip:Hide()
+
+  local detailPreferredCrafter = detailContainer:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+  detailPreferredCrafter:SetPoint("TOPLEFT", detailTip, "BOTTOMLEFT", 0, -2)
+  detailPreferredCrafter:SetPoint("RIGHT", -4, 0)
+  detailPreferredCrafter:SetJustifyH("LEFT")
+  detailPreferredCrafter:Hide()
+
   local detailItemHeader = detailContainer:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-  detailItemHeader:SetPoint("TOPLEFT", detailRequester, "BOTTOMLEFT", 0, -8)
+  detailItemHeader:SetPoint("TOPLEFT", detailPreferredCrafter, "BOTTOMLEFT", 0, -8)
   detailItemHeader:SetPoint("RIGHT", -4, 0)
   detailItemHeader:SetJustifyH("LEFT")
   detailItemHeader:SetText(T("Item Details"))
@@ -1357,6 +1395,8 @@ function SND:CreateRequestsTab(parent)
   frame.pageLabel = pageLabel
   frame.detailTitle = detailTitle
   frame.detailRequester = detailRequester
+  frame.detailTip = detailTip
+  frame.detailPreferredCrafter = detailPreferredCrafter
   frame.detailItemButton = detailItemButton
   frame.detailItemTitle = detailItemTitle
   frame.detailItemIcon = detailItemIcon
@@ -2101,23 +2141,11 @@ function SND:CreateRequestModal()
       local crafterName = modal.selectedCrafterName
       if crafterName and crafterName ~= "" then
         local display = crafterName:match("^[^-]+") or crafterName
-        local details = {}
-        if modal.selectedCrafterProfession and modal.selectedCrafterProfession ~= "" then
-          table.insert(details, modal.selectedCrafterProfession)
-        end
-        if modal.selectedCrafterOnline ~= nil then
-          table.insert(details, modal.selectedCrafterOnline and T("Online") or T("Offline"))
-        end
-        if modal.selectedCrafterHasSharedMats ~= nil then
-          table.insert(details, modal.selectedCrafterHasSharedMats and "Shared mats: Yes" or "Shared mats: No")
-        end
-        if #details > 0 then
-          modal.selectedCrafterValue:SetText(string.format("%s (%s)", display, table.concat(details, ", ")))
-        else
-          modal.selectedCrafterValue:SetText(display)
-        end
+        modal.selectedPreferredCrafter = crafterName
+        UIDropDownMenu_SetText(modal.selectedCrafterValue, display)
       else
-        modal.selectedCrafterValue:SetText("Any crafter")
+        modal.selectedPreferredCrafter = nil
+        UIDropDownMenu_SetText(modal.selectedCrafterValue, "Any crafter")
       end
     end
   end
@@ -2384,11 +2412,45 @@ function SND:CreateRequestModal()
   selectedCrafterLabel:SetPoint("TOPLEFT", selectedItemValue, "BOTTOMLEFT", 0, -8)
   selectedCrafterLabel:SetText("Crafter")
 
-  local selectedCrafterValue = modal:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-  selectedCrafterValue:SetPoint("LEFT", selectedCrafterLabel, "RIGHT", 8, 0)
-  selectedCrafterValue:SetPoint("RIGHT", targetSection, "RIGHT", -8, 0)
-  selectedCrafterValue:SetJustifyH("LEFT")
-  selectedCrafterValue:SetText("Any crafter")
+  local selectedCrafterDrop = CreateFrame("Frame", "SNDRequestCrafterDropDown", modal, "UIDropDownMenuTemplate")
+  selectedCrafterDrop:SetPoint("TOPLEFT", selectedCrafterLabel, "BOTTOMLEFT", -18, 2)
+  modal.selectedPreferredCrafter = nil
+
+  UIDropDownMenu_Initialize(selectedCrafterDrop, function(_, level, menuList)
+    -- "Any crafter" option
+    local anyInfo = UIDropDownMenu_CreateInfo()
+    anyInfo.text = "Any crafter"
+    anyInfo.checked = (modal.selectedPreferredCrafter == nil)
+    anyInfo.func = function()
+      modal.selectedPreferredCrafter = nil
+      UIDropDownMenu_SetText(selectedCrafterDrop, "Any crafter")
+    end
+    UIDropDownMenu_AddButton(anyInfo, level)
+
+    -- Populate crafters for the selected recipe
+    if modal.selectedRecipeSpellID then
+      local crafters = SND:GetCraftersForRecipe(modal.selectedRecipeSpellID)
+      if crafters then
+        for _, crafter in ipairs(crafters) do
+          local info = UIDropDownMenu_CreateInfo()
+          local shortName = crafter.name and crafter.name:match("^[^%-]+") or crafter.name
+          local statusTag = crafter.online and "|cff00ff00Online|r" or "|cff888888Offline|r"
+          info.text = string.format("%s (%s)", shortName, statusTag)
+          info.checked = (modal.selectedPreferredCrafter == crafter.name)
+          info.func = function()
+            modal.selectedPreferredCrafter = crafter.name
+            UIDropDownMenu_SetText(selectedCrafterDrop, shortName)
+          end
+          UIDropDownMenu_AddButton(info, level)
+        end
+      end
+    end
+  end)
+  UIDropDownMenu_SetWidth(selectedCrafterDrop, 180)
+  UIDropDownMenu_SetText(selectedCrafterDrop, "Any crafter")
+
+  -- Keep a reference for compatibility (used by refreshSelectionContext)
+  local selectedCrafterValue = selectedCrafterDrop
 
   local inputHeader = modal:CreateFontString(nil, "OVERLAY", "GameFontNormal")
   inputHeader:SetPoint("TOPLEFT", targetSection, "BOTTOMLEFT", 4, -10)
@@ -2412,8 +2474,22 @@ function SND:CreateRequestModal()
   matsStatusCheck.text:SetText("Need mats from crafter")
   matsStatusCheck:SetChecked(false)
 
+  local tipLabel = modal:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+  tipLabel:SetPoint("TOPLEFT", matsStatusCheck, "BOTTOMLEFT", 4, -8)
+  tipLabel:SetText("Offered Tip (gold)")
+
+  local tipBox = CreateFrame("EditBox", nil, modal, "InputBoxTemplate")
+  tipBox:SetSize(80, 24)
+  tipBox:SetPoint("LEFT", tipLabel, "RIGHT", 8, 0)
+  tipBox:SetAutoFocus(false)
+  tipBox:SetNumeric(true)
+
+  local tipHint = modal:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  tipHint:SetPoint("LEFT", tipBox, "RIGHT", 6, 0)
+  tipHint:SetText("(optional)")
+
   local notesLabel = modal:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-  notesLabel:SetPoint("TOPLEFT", matsStatusCheck, "BOTTOMLEFT", 4, -8)
+  notesLabel:SetPoint("TOPLEFT", tipLabel, "BOTTOMLEFT", 0, -8)
   notesLabel:SetText("Notes")
 
   local notesBox = CreateFrame("EditBox", nil, modal, "InputBoxTemplate")
@@ -2482,9 +2558,13 @@ function SND:CreateRequestModal()
 
     local notes = notesBox:GetText() or ""
     local needsMats = matsStatusCheck:GetChecked() and true or false
+    local offeredTip = tonumber(tipBox:GetText())
+    if offeredTip and offeredTip <= 0 then offeredTip = nil end
     SND:CreateRequest(modal.selectedRecipeSpellID, qty, notes, {
       needsMats = needsMats,
       ownedCounts = ownedCounts,
+      offeredTip = offeredTip and (offeredTip * 10000) or nil,
+      preferredCrafter = modal.selectedPreferredCrafter,
     })
     modal:Hide()
   end)
@@ -2514,6 +2594,7 @@ function SND:CreateRequestModal()
   modal.selectedItemLinkValue = selectedItemValueText
   modal.selectedCrafterValue = selectedCrafterValue
   modal.qtyBox = qtyBox
+  modal.tipBox = tipBox
   modal.matsStatusCheck = matsStatusCheck
   modal.notesBox = notesBox
   modal.materialsScroll = matsScroll
@@ -2550,6 +2631,7 @@ function SND:ShowRequestModal()
   self.requestModal.selectedCrafterOnline = nil
   self.requestModal.selectedCrafterHasSharedMats = nil
   self.requestModal.selectedCrafterProfession = nil
+  self.requestModal.selectedPreferredCrafter = nil
   self.requestModal.prefillOwnedCounts = nil
   self.requestModal.lockRecipeSelection = false
   self.requestModal.selectedRecipeLabel:SetText("-")
@@ -2560,10 +2642,13 @@ function SND:ShowRequestModal()
     self.requestModal.selectedItemIcon:SetTexture("Interface/Icons/INV_Misc_QuestionMark")
   end
   if self.requestModal.selectedCrafterValue then
-    self.requestModal.selectedCrafterValue:SetText("Any crafter")
+    UIDropDownMenu_SetText(self.requestModal.selectedCrafterValue, "Any crafter")
   end
   self.requestModal.searchBox:SetText("")
   self.requestModal.qtyBox:SetText("1")
+  if self.requestModal.tipBox then
+    self.requestModal.tipBox:SetText("")
+  end
   if self.requestModal.matsStatusCheck then
     self.requestModal.matsStatusCheck:SetChecked(false)
   end
@@ -2746,6 +2831,23 @@ function SND:CreateRequestPopup()
   requester:SetJustifyH("LEFT")
   popup.requester = requester
 
+  -- Tip text
+  local tipText = popup:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  tipText:SetPoint("TOPLEFT", requester, "BOTTOMLEFT", 0, -4)
+  tipText:SetPoint("RIGHT", popup, "RIGHT", -20, 0)
+  tipText:SetJustifyH("LEFT")
+  tipText:SetTextColor(1, 0.84, 0)
+  tipText:Hide()
+  popup.tipText = tipText
+
+  -- Preferred crafter text
+  local preferredText = popup:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  preferredText:SetPoint("TOPLEFT", tipText, "BOTTOMLEFT", 0, -2)
+  preferredText:SetPoint("RIGHT", popup, "RIGHT", -20, 0)
+  preferredText:SetJustifyH("LEFT")
+  preferredText:Hide()
+  popup.preferredText = preferredText
+
   -- Claim & Craft button
   local claimButton = CreateFrame("Button", nil, popup, "UIPanelButtonTemplate")
   claimButton:SetSize(140, 25)
@@ -2832,6 +2934,31 @@ function SND:ShowRequestNotificationPopup(requestId, requestData, sender)
 
   local requesterName = requestData.requester and requestData.requester:match("^[^%-]+") or sender
   popup.requester:SetText(string.format("Requested by: %s", requesterName))
+
+  -- Show tip if offered
+  if popup.tipText then
+    if requestData.offeredTip and requestData.offeredTip > 0 then
+      popup.tipText:SetText(string.format("Tip: %s", self:FormatPrice(requestData.offeredTip)))
+      popup.tipText:Show()
+    else
+      popup.tipText:Hide()
+    end
+  end
+
+  -- Show preferred crafter highlight
+  if popup.preferredText then
+    if requestData.preferredCrafter and requestData.preferredCrafter ~= "" then
+      local localPlayerKey = self:GetPlayerKey(UnitName("player"))
+      if requestData.preferredCrafter == localPlayerKey then
+        popup.preferredText:SetText("|cff00ff00You are the preferred crafter!|r")
+        popup.preferredText:Show()
+      else
+        popup.preferredText:Hide()
+      end
+    else
+      popup.preferredText:Hide()
+    end
+  end
 
   -- Show popup
   popup:Show()
