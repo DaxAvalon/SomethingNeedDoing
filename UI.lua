@@ -1609,19 +1609,24 @@ function SND:CreateMeTab(parent)
   scaleSlider:SetPoint("TOPLEFT", scaleLabel, "BOTTOMLEFT", 0, -8)
   scaleSlider:SetWidth(160)
   scaleSlider:SetMinMaxValues(0.5, 1.5)
-  scaleSlider:SetValueStep(0.05)
-  scaleSlider:SetObeyStepOnDrag(true)
+  scaleSlider:SetValueStep(0.01)
   scaleSlider:SetValue(SND.db.config.uiScale or 1.0)
   scaleSlider.Low:SetText("50%")
   scaleSlider.High:SetText("150%")
   scaleSlider.Text:SetText(math.floor((SND.db.config.uiScale or 1.0) * 100 + 0.5) .. "%")
   scaleSlider:SetScript("OnValueChanged", function(_, value)
-    value = math.floor(value * 20 + 0.5) / 20 -- snap to 0.05
-    SND.db.config.uiScale = value
     scaleSlider.Text:SetText(math.floor(value * 100 + 0.5) .. "%")
-    if SND.mainFrame then
-      SND.mainFrame:SetScale(value)
-    end
+    -- Defer SetScale by one frame so the drag handler isn't disrupted
+    C_Timer.After(0, function()
+      if SND.mainFrame then
+        SND.mainFrame:SetScale(value)
+      end
+    end)
+  end)
+  scaleSlider:SetScript("OnMouseUp", function()
+    local value = math.floor(scaleSlider:GetValue() * 20 + 0.5) / 20
+    SND.db.config.uiScale = value
+    scaleSlider:SetValue(value)
     if type(SND.RefreshOptions) == "function" then
       SND:RefreshOptions()
     end
