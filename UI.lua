@@ -118,6 +118,7 @@ function SND:CreateMainWindow()
   local height = savedHeight or MAIN_FRAME_HEIGHT
 
   frame:SetSize(width, height)
+  frame:SetScale(self.db and self.db.config and self.db.config.uiScale or 1.0)
   frame:SetPoint("CENTER")
   frame:SetFrameStrata(SND_MAIN_STRATA)
   frame:SetMovable(true)
@@ -1550,8 +1551,16 @@ function SND:CreateMeTab(parent)
     SND.db.config.showNotifications = btn:GetChecked() and true or false
   end)
 
+  local popupToggle = CreateFrame("CheckButton", nil, leftColumn, "UICheckButtonTemplate")
+  popupToggle:SetPoint("TOPLEFT", notificationsToggle, "BOTTOMLEFT", 0, -2)
+  popupToggle.text:SetText("Show request popup")
+  popupToggle:SetChecked(SND.db.config.showRequestPopup and true or false)
+  popupToggle:SetScript("OnClick", function(btn)
+    SND.db.config.showRequestPopup = btn:GetChecked() and true or false
+  end)
+
   local priceSourceLabel = leftColumn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-  priceSourceLabel:SetPoint("TOPLEFT", notificationsToggle, "BOTTOMLEFT", 0, -10)
+  priceSourceLabel:SetPoint("TOPLEFT", popupToggle, "BOTTOMLEFT", 0, -10)
   priceSourceLabel:SetText("Price Source")
 
   local priceSourceValues = {
@@ -1591,6 +1600,33 @@ function SND:CreateMeTab(parent)
       UIDropDownMenu_AddButton(info, level)
     end
   end)
+
+  local scaleLabel = leftColumn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+  scaleLabel:SetPoint("TOPLEFT", priceSourceDropdown, "BOTTOMLEFT", 16, -6)
+  scaleLabel:SetText("UI Scale")
+
+  local scaleSlider = CreateFrame("Slider", "SNDUIScaleSlider", leftColumn, "OptionsSliderTemplate")
+  scaleSlider:SetPoint("TOPLEFT", scaleLabel, "BOTTOMLEFT", 0, -8)
+  scaleSlider:SetWidth(160)
+  scaleSlider:SetMinMaxValues(0.5, 1.5)
+  scaleSlider:SetValueStep(0.05)
+  scaleSlider:SetObeyStepOnDrag(true)
+  scaleSlider:SetValue(SND.db.config.uiScale or 1.0)
+  scaleSlider.Low:SetText("50%")
+  scaleSlider.High:SetText("150%")
+  scaleSlider.Text:SetText(math.floor((SND.db.config.uiScale or 1.0) * 100 + 0.5) .. "%")
+  scaleSlider:SetScript("OnValueChanged", function(_, value)
+    value = math.floor(value * 20 + 0.5) / 20 -- snap to 0.05
+    SND.db.config.uiScale = value
+    scaleSlider.Text:SetText(math.floor(value * 100 + 0.5) .. "%")
+    if SND.mainFrame then
+      SND.mainFrame:SetScale(value)
+    end
+    if type(SND.RefreshOptions) == "function" then
+      SND:RefreshOptions()
+    end
+  end)
+  frame.scaleSlider = scaleSlider
 
   local scanLogCopyModal = CreateFrame("Frame", nil, frame, "BackdropTemplate")
   scanLogCopyModal:SetSize(540, 280)
@@ -2783,7 +2819,7 @@ function SND:ShowIncomingRequestPopup(requestId, requestData, sender)
   end
 
   -- Show custom popup notification
-  if self.requestPopup then
+  if self.requestPopup and self.db.config.showRequestPopup then
     self:ShowRequestNotificationPopup(requestId, requestData, sender)
   end
 end

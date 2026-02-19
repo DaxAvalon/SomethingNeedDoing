@@ -33,6 +33,7 @@ SND.scanner = {
   lastSharedMatsSnapshotTruncatedCount = 0,
   lastSharedMatsSnapshotTotalCandidates = 0,
   lastSharedMatsTruncationWarnAt = 0,
+  categoriesExpandedThisSession = false,
 }
 
 local function debugScan(self, message)
@@ -848,13 +849,16 @@ function SND:ScanRecipesForSkillLine(skillLineID, profEntry)
     return nil
   end
 
-  if type(GetTradeSkillInfo) == "function" and type(ExpandTradeSkillSubClass) == "function" then
-    local preExpandCount = GetNumTradeSkills() or 0
-    for idx = 1, preExpandCount do
-      local _, rowType, _, isExpanded = GetTradeSkillInfo(idx)
-      if rowType == "header" and not isExpanded then
-        ExpandTradeSkillSubClass(idx)
+  if not self.scanner.categoriesExpandedThisSession then
+    if type(GetTradeSkillInfo) == "function" and type(ExpandTradeSkillSubClass) == "function" then
+      local preExpandCount = GetNumTradeSkills() or 0
+      for idx = 1, preExpandCount do
+        local _, rowType, _, isExpanded = GetTradeSkillInfo(idx)
+        if rowType == "header" and not isExpanded then
+          ExpandTradeSkillSubClass(idx)
+        end
       end
+      self.scanner.categoriesExpandedThisSession = true
     end
   end
 

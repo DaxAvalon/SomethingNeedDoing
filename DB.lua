@@ -25,6 +25,8 @@ local DEFAULT_DB = {
       hide = false,
     },
     debugMode = false,
+    showRequestPopup = true,
+    uiScale = 1.0,
     priceSource = "auto",
     shareMatsExclusions = {},
     filters = {

@@ -95,6 +95,43 @@ function SND:GetOptionsTable()
               getConfig(self).autoPublishOnLearn = value and true or false
             end,
           },
+          showRequestPopup = {
+            type = "toggle",
+            name = T("Show request popup"),
+            order = 12,
+            get = function()
+              return getConfig(self).showRequestPopup and true or false
+            end,
+            set = function(_, value)
+              getConfig(self).showRequestPopup = value and true or false
+            end,
+          },
+          uiScale = {
+            type = "range",
+            name = T("UI Scale"),
+            order = 13,
+            min = 0.5,
+            max = 1.5,
+            step = 0.05,
+            isPercent = true,
+            get = function()
+              return tonumber(getConfig(self).uiScale) or 1.0
+            end,
+            set = function(_, value)
+              value = math.floor(value * 20 + 0.5) / 20
+              getConfig(self).uiScale = value
+              if self.mainFrame then
+                self.mainFrame:SetScale(value)
+              end
+              -- Sync the in-addon slider if it exists
+              if self.mainFrame and self.mainFrame.contentFrames then
+                local optionsFrame = self.mainFrame.contentFrames[4]
+                if optionsFrame and optionsFrame.scaleSlider then
+                  optionsFrame.scaleSlider:SetValue(value)
+                end
+              end
+            end,
+          },
           shareMatsOptIn = {
             type = "toggle",
             name = T("Share available crafting materials"),
